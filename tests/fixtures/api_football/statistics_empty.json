@@ -1,0 +1,7 @@
+{
+  "get": "fixtures/statistics",
+  "parameters": { "fixture": "1002" },
+  "errors": [],
+  "results": 0,
+  "response": []
+}

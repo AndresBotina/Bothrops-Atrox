@@ -1,0 +1,15 @@
+{
+  "get": "fixtures/statistics",
+  "parameters": { "fixture": "9999" },
+  "errors": [],
+  "results": 1,
+  "response": [
+    {
+      "team": { "id": 999, "name": "Mystery FC" },
+      "statistics": [
+        { "type": "Total Shots", "value": 10 },
+        { "type": "Ball Possession", "value": "50%" }
+      ]
+    }
+  ]
+}

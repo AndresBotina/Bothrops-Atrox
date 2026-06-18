@@ -8,6 +8,7 @@ NO son las tablas `core`: la normalización es trabajo de la HU 1.3.2.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -133,3 +134,20 @@ class FixtureEntry(_Base):
 def parse_fixtures(payload: dict) -> list[FixtureEntry]:
     """Valida y devuelve las entradas de partido de un payload `/fixtures`."""
     return [FixtureEntry.model_validate(item) for item in payload.get("response", [])]
+
+
+# ---- /fixtures/statistics ---------------------------------------------------
+class StatItem(_Base):
+    type: str
+    # value puede ser null, entero, o texto ("55%", "1.8"): no asumimos numérico.
+    value: Any = None
+
+
+class TeamStatistics(_Base):
+    team: TeamRef
+    statistics: list[StatItem] = []
+
+
+def parse_statistics(payload: dict) -> list[TeamStatistics]:
+    """Valida y devuelve las estadísticas por equipo de un payload `/fixtures/statistics`."""
+    return [TeamStatistics.model_validate(item) for item in payload.get("response", [])]

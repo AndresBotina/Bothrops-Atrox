@@ -75,6 +75,20 @@ catálogo es prerequisito: no crea entidades fantasma) y hace **UPSERT** por
 en su sitio. Los estados desconocidos y los partidos no-normalizables se registran
 en `meta.data_quality_checks` en vez de romper o meter basura.
 
+Por último, las estadísticas post-partido (una fila por equipo por partido):
+
+```bash
+uv run valuebet fetch stats --fixture 1002    # /fixtures/statistics -> raw
+uv run valuebet normalize stats               # raw -> core.match_team_stats
+```
+
+`normalize stats` sólo normaliza partidos terminales que ya existen en `core`,
+inserta **una fila por equipo** con `is_home` derivado del partido, parsea la
+posesión `"55%"` a fracción `0.55` y el xG a float. **La ausencia no es cero**: un
+`type` que no viene (p. ej. xG en ligas sin cobertura) queda `NULL`, nunca `0`. Un
+partido sin stats se registra en `meta.data_quality_checks` (no se inserta una fila
+de puros NULL). Es idempotente: `UNIQUE(match_id, team_id)` → UPSERT.
+
 ## Estructura (src-layout)
 
 ```

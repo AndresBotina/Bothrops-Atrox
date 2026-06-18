@@ -89,6 +89,10 @@ class ApiFootballAdapter:
         """Partidos de una liga/temporada (endpoint /fixtures). Misma envoltura/validación."""
         return self.fetch("/fixtures", {"league": league_id, "season": season})
 
+    def fetch_fixture_statistics(self, fixture_id: int) -> RawFetchResult:
+        """Estadísticas post-partido de un fixture (endpoint /fixtures/statistics)."""
+        return self.fetch("/fixtures/statistics", {"fixture": fixture_id})
+
 
 @contextmanager
 def open_adapter(
