@@ -31,3 +31,9 @@ Evaluador/backtesting · Dixon-Coles · Detección de valor · Retroalimentació
   para no perder partidos en silencio.
 - Pendiente Fase 2: derivar xga (= xg del rival en el mismo partido); la API no
   lo da por equipo, queda None en ingesta.
+- Decisión v1 (verificada con datos reales): modelar Premier League (id 39) y
+  LaLiga (id 140), temporadas 2022-2024. Ambas con xG REAL confirmado vía
+  verify-xg en 2023. Ligas regulares ~380 partidos/temporada. Se modela una liga
+  por modelo; escalar a más ligas reusa la misma arquitectura (solo cambia el id).
+- Colombia Primera A descartada para v1: tiene stats pero NO xG (limitación de la
+  liga, no del plan). El sistema soporta sumarla luego sin refactor. 
