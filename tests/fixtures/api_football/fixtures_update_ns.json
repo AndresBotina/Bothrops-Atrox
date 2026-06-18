@@ -1,0 +1,26 @@
+{
+  "get": "fixtures",
+  "parameters": { "league": "39", "season": "2023" },
+  "errors": [],
+  "results": 1,
+  "paging": { "current": 1, "total": 1 },
+  "response": [
+    {
+      "fixture": {
+        "id": 2001,
+        "timezone": "UTC",
+        "date": "2023-09-02T14:00:00+00:00",
+        "timestamp": 1693663200,
+        "status": { "long": "Not Started", "short": "NS", "elapsed": null },
+        "venue": { "id": 556, "name": "Old Trafford", "city": "Manchester" }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 5" },
+      "teams": {
+        "home": { "id": 33, "name": "Manchester United" },
+        "away": { "id": 999, "name": "Mystery FC" }
+      },
+      "goals": { "home": null, "away": null },
+      "score": { "halftime": { "home": null, "away": null } }
+    }
+  ]
+}

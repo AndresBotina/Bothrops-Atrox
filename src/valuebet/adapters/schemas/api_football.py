@@ -7,9 +7,9 @@ NO son las tablas `core`: la normalización es trabajo de la HU 1.3.2.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class _Base(BaseModel):
@@ -71,3 +71,65 @@ def parse_leagues(payload: dict) -> list[LeagueEntry]:
 def parse_teams(payload: dict) -> list[TeamEntry]:
     """Valida y devuelve las entradas de equipo de un payload `/teams`."""
     return [TeamEntry.model_validate(item) for item in payload.get("response", [])]
+
+
+# ---- /fixtures --------------------------------------------------------------
+class FixtureStatus(_Base):
+    short: str
+    long: str | None = None
+
+
+class FixtureVenueRef(_Base):
+    id: int | None = None
+
+
+class FixtureInfo(_Base):
+    id: int
+    date: datetime | None = None  # ISO con tz
+    timestamp: int | None = None  # epoch UTC
+    timezone: str | None = None
+    status: FixtureStatus
+    venue: FixtureVenueRef = Field(default_factory=FixtureVenueRef)
+
+
+class FixtureLeagueRef(_Base):
+    id: int
+    season: int
+    round: str | None = None
+
+
+class TeamRef(_Base):
+    id: int
+
+
+class FixtureTeams(_Base):
+    home: TeamRef
+    away: TeamRef
+
+
+class Goals(_Base):
+    # null cuando el partido no se ha jugado: opcionales reales.
+    home: int | None = None
+    away: int | None = None
+
+
+class ScoreHalf(_Base):
+    home: int | None = None
+    away: int | None = None
+
+
+class Score(_Base):
+    halftime: ScoreHalf = Field(default_factory=ScoreHalf)
+
+
+class FixtureEntry(_Base):
+    fixture: FixtureInfo
+    league: FixtureLeagueRef
+    teams: FixtureTeams
+    goals: Goals = Field(default_factory=Goals)
+    score: Score = Field(default_factory=Score)
+
+
+def parse_fixtures(payload: dict) -> list[FixtureEntry]:
+    """Valida y devuelve las entradas de partido de un payload `/fixtures`."""
+    return [FixtureEntry.model_validate(item) for item in payload.get("response", [])]

@@ -1,0 +1,85 @@
+{
+  "get": "fixtures",
+  "parameters": { "league": "39", "season": "2023" },
+  "errors": [],
+  "results": 4,
+  "paging": { "current": 1, "total": 1 },
+  "response": [
+    {
+      "fixture": {
+        "id": 1001,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2023-08-12T14:00:00+00:00",
+        "timestamp": 1691848800,
+        "status": { "long": "Not Started", "short": "NS", "elapsed": null },
+        "venue": { "id": 556, "name": "Old Trafford", "city": "Manchester" }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 1" },
+      "teams": {
+        "home": { "id": 33, "name": "Manchester United" },
+        "away": { "id": 999, "name": "Mystery FC" }
+      },
+      "goals": { "home": null, "away": null },
+      "score": {
+        "halftime": { "home": null, "away": null },
+        "fulltime": { "home": null, "away": null }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1002,
+        "referee": "A. Taylor",
+        "timezone": "UTC",
+        "date": "2023-08-19T14:00:00+00:00",
+        "timestamp": 1692453600,
+        "status": { "long": "Match Finished", "short": "FT", "elapsed": 90 },
+        "venue": { "id": 556, "name": "Old Trafford", "city": "Manchester" }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 2" },
+      "teams": {
+        "home": { "id": 999, "name": "Mystery FC" },
+        "away": { "id": 33, "name": "Manchester United" }
+      },
+      "goals": { "home": 2, "away": 1 },
+      "score": {
+        "halftime": { "home": 1, "away": 0 },
+        "fulltime": { "home": 2, "away": 1 }
+      }
+    },
+    {
+      "fixture": {
+        "id": 1003,
+        "timezone": "UTC",
+        "date": "2023-08-20T16:30:00+00:00",
+        "timestamp": 1692549000,
+        "status": { "long": "Some Future Status", "short": "ZZZ", "elapsed": null },
+        "venue": { "id": 556, "name": "Old Trafford", "city": "Manchester" }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 3" },
+      "teams": {
+        "home": { "id": 33, "name": "Manchester United" },
+        "away": { "id": 999, "name": "Mystery FC" }
+      },
+      "goals": { "home": null, "away": null },
+      "score": { "halftime": { "home": null, "away": null } }
+    },
+    {
+      "fixture": {
+        "id": 1004,
+        "timezone": "UTC",
+        "date": "2023-08-21T18:00:00+00:00",
+        "timestamp": 1692640800,
+        "status": { "long": "Not Started", "short": "NS", "elapsed": null },
+        "venue": { "id": null, "name": null, "city": null }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 4" },
+      "teams": {
+        "home": { "id": 55555, "name": "Unknown Team Not In Catalog" },
+        "away": { "id": 33, "name": "Manchester United" }
+      },
+      "goals": { "home": null, "away": null },
+      "score": { "halftime": { "home": null, "away": null } }
+    }
+  ]
+}

@@ -60,6 +60,21 @@ valida con Pydantic y proyecta a `core.countries`, `core.competitions`,
 re-ejecutarlo no duplica entidades. `raw` queda intacto (esta capa sólo lee de
 `raw` y escribe en `core`).
 
+Con el catálogo ya en `core`, ingesta y normaliza los partidos:
+
+```bash
+uv run valuebet fetch fixtures --league 39 --season 2023   # partidos -> raw
+uv run valuebet normalize fixtures                          # raw -> core.matches
+```
+
+`normalize fixtures` mapea `fixture.status.short` a `core.match_statuses`, deriva
+`kickoff_utc` en UTC y sólo asigna goles en estados con resultado (finished/aet/
+penalties/abandoned/awarded). Resuelve season/equipos/venue por identidad (el
+catálogo es prerequisito: no crea entidades fantasma) y hace **UPSERT** por
+`fixture.id`, así que un partido que pasa de `scheduled` a `finished` se actualiza
+en su sitio. Los estados desconocidos y los partidos no-normalizables se registran
+en `meta.data_quality_checks` en vez de romper o meter basura.
+
 ## Estructura (src-layout)
 
 ```

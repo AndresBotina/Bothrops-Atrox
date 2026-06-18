@@ -85,6 +85,10 @@ class ApiFootballAdapter:
         """Catálogo de equipos (con venue embebido) de una liga/temporada (/teams)."""
         return self.fetch("/teams", {"league": league_id, "season": season})
 
+    def fetch_fixtures(self, league_id: int, season: int) -> RawFetchResult:
+        """Partidos de una liga/temporada (endpoint /fixtures). Misma envoltura/validación."""
+        return self.fetch("/fixtures", {"league": league_id, "season": season})
+
 
 @contextmanager
 def open_adapter(

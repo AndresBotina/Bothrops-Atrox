@@ -8,6 +8,7 @@ from valuebet.adapters.api_football import open_adapter
 from valuebet.adapters.sources import seed_sources
 from valuebet.config.settings import Settings, get_settings
 from valuebet.ingestion.normalize_catalog import normalize_catalog
+from valuebet.ingestion.normalize_fixtures import normalize_fixtures
 from valuebet.ingestion.raw import ingestion_run
 
 app = typer.Typer(help="valuebet — detección de valor en apuestas de fútbol.")
@@ -77,12 +78,44 @@ def fetch_teams(
     typer.echo(f"teams: results={result.payload.get('results')} → raw.payloads {payload_id}")
 
 
+@fetch_app.command("fixtures")
+def fetch_fixtures(
+    league: int = typer.Option(..., help="ID de liga de API-Football."),
+    season: int = typer.Option(..., help="Temporada (año)."),
+) -> None:
+    """Trae los partidos de una liga/temporada y los aterriza en raw.payloads."""
+    settings = get_settings()
+    key = _require_api_key(settings)
+    params = {"league": league, "season": season}
+
+    with (
+        open_adapter(key) as adapter,
+        ingestion_run("api_sports", "fetch_fixtures", params=params) as run,
+    ):
+        result = adapter.fetch_fixtures(league, season)
+        payload_id = run.persist(result)
+
+    typer.echo(f"fixtures: results={result.payload.get('results')} → raw.payloads {payload_id}")
+
+
 @normalize_app.command("catalog")
 def normalize_catalog_cmd() -> None:
     """Normaliza el catálogo (competiciones, temporadas, equipos, estadios) desde raw."""
     stats = normalize_catalog()
     typer.echo(f"catálogo normalizado: nuevas={stats.created}, resueltas={stats.resolved}")
     typer.echo(f"  nuevas por tipo: {dict(stats.created_by_type)}")
+
+
+@normalize_app.command("fixtures")
+def normalize_fixtures_cmd() -> None:
+    """Normaliza los partidos (core.matches) desde el último raw /fixtures."""
+    stats = normalize_fixtures()
+    typer.echo(
+        f"partidos normalizados: nuevos={stats.created}, actualizados={stats.updated}, "
+        f"omitidos={stats.skipped}"
+    )
+    if stats.issues:
+        typer.echo(f"  incidencias (ver data_quality_checks): {stats.issues}")
 
 
 if __name__ == "__main__":
