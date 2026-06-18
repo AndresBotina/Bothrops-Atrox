@@ -6,10 +6,13 @@ import copy
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from sqlalchemy import func, select, text
 
+from valuebet.adapters.api_football import BASE_URL, ApiFootballAdapter
 from valuebet.adapters.base import RawFetchResult
+from valuebet.adapters.http import HTTPClient
 from valuebet.adapters.sources import seed_sources
 from valuebet.db.models.core import Country, Match, MatchTeamStats, SourceEntityMap, Team
 from valuebet.db.models.meta import IngestionRun
@@ -36,13 +39,16 @@ class FakeApiFootball:
         self.calls: list[str] = []
         self._stats_template = _load("statistics_full.json")
 
-    def fetch_leagues(self, params=None) -> RawFetchResult:
+    def fetch_leagues(self, params=None, *, league_id=None) -> RawFetchResult:
         self.calls.append("leagues")
+        query = dict(params or {})
+        if league_id is not None:
+            query["id"] = int(league_id)
         return RawFetchResult.build(
             source_code="api_sports",
             endpoint="/leagues",
             payload=_load("leagues.json"),
-            params=params,
+            params=query,
         )
 
     def fetch_teams(self, league_id: int, season: int) -> RawFetchResult:
@@ -176,6 +182,45 @@ def test_request_budget_stops_partial_then_completes(seeded) -> None:
     assert done.status == "success"
     with get_session() as session:
         assert session.scalar(select(func.count()).select_from(MatchTeamStats)) == 6
+
+
+def test_orchestrator_arms_catalog_requests_correctly(seeded) -> None:
+    """Cadena completa a través de httpx: cada endpoint usa SU parámetro de liga.
+
+    Regresión del bug 1.5.1: /leagues debe ir con 'id' (no 'league').
+    """
+    requests: list[httpx.Request] = []
+    stats_template = _load("statistics_full.json")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        path = request.url.path
+        if path == "/leagues":
+            body = _load("leagues.json")
+        elif path == "/teams":
+            body = _load("teams.json")
+        elif path == "/fixtures":
+            body = _load("fixtures_orch.json")
+        elif path == "/fixtures/statistics":
+            body = copy.deepcopy(stats_template)
+            body["parameters"] = {"fixture": request.url.params.get("fixture")}
+        else:  # pragma: no cover - ruta inesperada
+            body = {"errors": [], "results": 0, "response": []}
+        return httpx.Response(200, json=body)
+
+    inner = httpx.Client(transport=httpx.MockTransport(handler), base_url=BASE_URL)
+    adapter = ApiFootballAdapter(HTTPClient(client=inner, max_attempts=2, backoff_base=0.0))
+
+    summary = ingest_league_season(adapter, 39, 2023)
+    assert summary.status == "success"
+
+    by_path: dict[str, httpx.Request] = {r.url.path: r for r in requests}
+    # /leagues -> 'id' (NO 'league')
+    assert by_path["/leagues"].url.params.get("id") == "39"
+    assert "league" not in by_path["/leagues"].url.params
+    # /teams y /fixtures -> 'league'
+    assert by_path["/teams"].url.params.get("league") == "39"
+    assert by_path["/fixtures"].url.params.get("league") == "39"
 
 
 def test_failing_stats_fetch_does_not_break_flow(seeded) -> None:

@@ -142,7 +142,8 @@ def _ingest_catalog(
         summary.budget_exhausted = True
         return
     budget.spend()
-    leagues_res = adapter.fetch_leagues({"league": league_id, "season": season})
+    # /leagues filtra una liga concreta con 'id' (lo mapea fetch_leagues), NO 'league'.
+    leagues_res = adapter.fetch_leagues({"season": season}, league_id=league_id)
     run.persist(leagues_res)
     _normalize_leagues(session, source_id, sport_id, leagues_res.payload, summary.catalog)
 

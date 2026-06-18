@@ -32,6 +32,48 @@ def _adapter(payload: dict, status: int = 200) -> ApiFootballAdapter:
     return ApiFootballAdapter(HTTPClient(client=inner, max_attempts=2, backoff_base=0.0))
 
 
+def _capturing_adapter(captured: dict) -> ApiFootballAdapter:
+    """Adapter cuyo MockTransport captura la request saliente (URL/querystring)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(200, json={"errors": [], "results": 0, "response": []})
+
+    inner = httpx.Client(transport=httpx.MockTransport(handler), base_url=BASE_URL)
+    return ApiFootballAdapter(HTTPClient(client=inner, max_attempts=2, backoff_base=0.0))
+
+
+def test_fetch_leagues_filters_by_id_not_league() -> None:
+    """Regresión del bug 1.5.1: /leagues filtra por 'id', NO por 'league'."""
+    captured: dict = {}
+    _capturing_adapter(captured).fetch_leagues({"season": 2024}, league_id=239)
+    params = captured["request"].url.params
+
+    assert params.get("id") == "239"  # parámetro correcto del endpoint /leagues
+    assert "league" not in params  # 'league' NO existe en /leagues
+    assert params.get("season") == "2024"
+
+
+def test_fetch_teams_uses_league_param() -> None:
+    captured: dict = {}
+    _capturing_adapter(captured).fetch_teams(239, 2024)
+    params = captured["request"].url.params
+
+    assert captured["request"].url.path == "/teams"
+    assert params.get("league") == "239"  # en /teams sí es 'league'
+    assert params.get("season") == "2024"
+
+
+def test_fetch_fixtures_uses_league_param() -> None:
+    captured: dict = {}
+    _capturing_adapter(captured).fetch_fixtures(239, 2024)
+    params = captured["request"].url.params
+
+    assert captured["request"].url.path == "/fixtures"
+    assert params.get("league") == "239"  # en /fixtures sí es 'league'
+    assert params.get("season") == "2024"
+
+
 def test_adapter_satisfies_protocol() -> None:
     assert isinstance(_adapter(_load("leagues.json")), Adapter)
 

@@ -77,21 +77,37 @@ class ApiFootballAdapter:
         )
 
     # -- métodos de catálogo ------------------------------------------------
-    def fetch_leagues(self, params: Mapping[str, Any] | None = None) -> RawFetchResult:
-        """Catálogo de ligas y sus temporadas (endpoint /leagues)."""
-        return self.fetch("/leagues", params)
+    # NOMBRE DEL PARÁMETRO DE LIGA POR ENDPOINT (¡no es uniforme en API-Football!):
+    #   /leagues  -> 'id'      (filtrar una liga concreta; 'league' NO existe aquí)
+    #   /teams    -> 'league'
+    #   /fixtures -> 'league'
+    # Cada método mapea la intención ("quiero la liga X") al parámetro que SU
+    # endpoint exige. Los valores numéricos se normalizan a int.
+    def fetch_leagues(
+        self, params: Mapping[str, Any] | None = None, *, league_id: int | None = None
+    ) -> RawFetchResult:
+        """Catálogo de ligas y temporadas (/leagues).
+
+        Para filtrar por una liga concreta, /leagues usa 'id' (NO 'league'): por eso
+        `league_id` se mapea a 'id'. `params` admite otros filtros válidos del
+        endpoint (p. ej. 'country', 'season').
+        """
+        query: dict[str, Any] = dict(params or {})
+        if league_id is not None:
+            query["id"] = int(league_id)
+        return self.fetch("/leagues", query or None)
 
     def fetch_teams(self, league_id: int, season: int) -> RawFetchResult:
-        """Catálogo de equipos (con venue embebido) de una liga/temporada (/teams)."""
-        return self.fetch("/teams", {"league": league_id, "season": season})
+        """Catálogo de equipos (venue embebido) de una liga/temporada (/teams: 'league')."""
+        return self.fetch("/teams", {"league": int(league_id), "season": int(season)})
 
     def fetch_fixtures(self, league_id: int, season: int) -> RawFetchResult:
-        """Partidos de una liga/temporada (endpoint /fixtures). Misma envoltura/validación."""
-        return self.fetch("/fixtures", {"league": league_id, "season": season})
+        """Partidos de una liga/temporada (/fixtures: 'league')."""
+        return self.fetch("/fixtures", {"league": int(league_id), "season": int(season)})
 
     def fetch_fixture_statistics(self, fixture_id: int) -> RawFetchResult:
-        """Estadísticas post-partido de un fixture (endpoint /fixtures/statistics)."""
-        return self.fetch("/fixtures/statistics", {"fixture": fixture_id})
+        """Estadísticas post-partido de un fixture (/fixtures/statistics: 'fixture')."""
+        return self.fetch("/fixtures/statistics", {"fixture": int(fixture_id)})
 
 
 @contextmanager
