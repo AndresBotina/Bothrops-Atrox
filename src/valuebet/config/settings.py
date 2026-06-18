@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Nivel de logging. Se consume en HU 0.2.2 (logging estructurado).
     log_level: str = "INFO"
 
+    # Clave de API-Football (API-Sports). Opcional: sólo se exige al hacer fetch
+    # real contra el proveedor; el resto del sistema arranca sin ella.
+    apisports_key: str | None = None
+
     @field_validator("database_url")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:

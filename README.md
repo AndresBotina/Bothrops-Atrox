@@ -23,6 +23,43 @@ uv run alembic upgrade head   # aplica el esquema a la base
 uv run pytest                 # corre la suite
 ```
 
+## Ingesta de catálogo (API-Football)
+
+El fetch contra [API-Football](https://www.api-football.com/) (API-Sports) necesita
+una clave. Consíguela en el dashboard y ponla en `.env` (nunca en código ni en git):
+
+```bash
+# .env
+APISPORTS_KEY=tu_clave_aqui
+```
+
+Registra las fuentes y trae el catálogo crudo a `raw.payloads`:
+
+```bash
+uv run valuebet sources seed                       # registra las fuentes (idempotente)
+uv run valuebet fetch leagues --country England     # catálogo de ligas -> raw
+uv run valuebet fetch teams --league 39 --season 2023  # equipos de una liga/temporada -> raw
+```
+
+Cada fetch deja el payload crudo en `raw.payloads` ligado a una corrida en
+`meta.ingestion_runs`. El tier gratuito limita a ~10 req/min; el cliente HTTP
+respeta ese intervalo automáticamente.
+
+### Flujo: fetch → normalize
+
+Una vez que el catálogo crudo está en `raw`, normalízalo a las entidades `core`:
+
+```bash
+uv run valuebet normalize catalog   # raw (último /leagues y /teams) -> core
+```
+
+`normalize catalog` lee el payload más reciente de `raw` (no vuelve a la API),
+valida con Pydantic y proyecta a `core.countries`, `core.competitions`,
+`core.seasons`, `core.teams` y `core.venues`, resolviendo identidad vía
+`core.source_entity_map` (external_id de la API → UUID interno). Es **idempotente**:
+re-ejecutarlo no duplica entidades. `raw` queda intacto (esta capa sólo lee de
+`raw` y escribe en `core`).
+
 ## Estructura (src-layout)
 
 ```

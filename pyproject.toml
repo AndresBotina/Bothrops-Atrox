@@ -22,6 +22,9 @@ dependencies = [
     "pandera>=0.20",             # contratos de datos sobre DataFrames (HU 1.6.1)
 ]
 
+[project.scripts]
+valuebet = "valuebet.cli:app"
+
 [project.optional-dependencies]
 # Fase 3: motor estadístico Dixon-Coles.
 modeling = [
