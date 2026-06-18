@@ -1,0 +1,53 @@
+{
+  "get": "fixtures",
+  "parameters": { "league": "39", "season": "2023" },
+  "errors": [],
+  "results": 4,
+  "paging": { "current": 1, "total": 1 },
+  "response": [
+    {
+      "fixture": {
+        "id": 1001, "timezone": "UTC", "date": "2023-08-12T14:00:00+00:00",
+        "timestamp": 1691848800, "status": { "long": "Not Started", "short": "NS" },
+        "venue": { "id": 556 }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 1" },
+      "teams": { "home": { "id": 33 }, "away": { "id": 999 } },
+      "goals": { "home": null, "away": null },
+      "score": { "halftime": { "home": null, "away": null } }
+    },
+    {
+      "fixture": {
+        "id": 1002, "timezone": "UTC", "date": "2023-08-19T14:00:00+00:00",
+        "timestamp": 1692453600, "status": { "long": "Match Finished", "short": "FT" },
+        "venue": { "id": 556 }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 2" },
+      "teams": { "home": { "id": 999 }, "away": { "id": 33 } },
+      "goals": { "home": 2, "away": 1 },
+      "score": { "halftime": { "home": 1, "away": 0 } }
+    },
+    {
+      "fixture": {
+        "id": 1005, "timezone": "UTC", "date": "2023-08-26T14:00:00+00:00",
+        "timestamp": 1693058400, "status": { "long": "Match Finished", "short": "FT" },
+        "venue": { "id": 556 }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 3" },
+      "teams": { "home": { "id": 33 }, "away": { "id": 999 } },
+      "goals": { "home": 1, "away": 1 },
+      "score": { "halftime": { "home": 0, "away": 1 } }
+    },
+    {
+      "fixture": {
+        "id": 1006, "timezone": "UTC", "date": "2023-09-02T14:00:00+00:00",
+        "timestamp": 1693663200, "status": { "long": "Match Finished", "short": "FT" },
+        "venue": { "id": 556 }
+      },
+      "league": { "id": 39, "season": 2023, "round": "Regular Season - 4" },
+      "teams": { "home": { "id": 999 }, "away": { "id": 33 } },
+      "goals": { "home": 0, "away": 3 },
+      "score": { "halftime": { "home": 0, "away": 1 } }
+    }
+  ]
+}

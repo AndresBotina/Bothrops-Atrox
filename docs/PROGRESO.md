@@ -11,7 +11,7 @@
 - [x] HU 1.3.1  Adapter de catálogo API-Football (fetch → raw)
 - [x] HU 1.3.2  Normalización de catálogo a core (identidad + idempotencia)
 - [x] HU 1.3.3  Normalización de partidos (matches)
-- [ ] HU 1.3.4  Normalización de stats post-partido (match_team_stats)
+- [x] HU 1.3.4  Normalización de stats post-partido (match_team_stats)
 - [ ] HU 1.4.1  Adapter de cuotas + snapshots
 - [ ] HU 1.5.1  Flujo de ingesta encadenado
 - [ ] HU 1.5.2  Backfill histórico reanudable
@@ -29,3 +29,5 @@ Evaluador/backtesting · Dixon-Coles · Detección de valor · Retroalimentació
 - Vigilancia 1.5.2: partidos con status desconocido se omiten y quedan en
   data_quality_checks (warning). Revisar esos warnings durante el backfill
   para no perder partidos en silencio.
+- Pendiente Fase 2: derivar xga (= xg del rival en el mismo partido); la API no
+  lo da por equipo, queda None en ingesta.

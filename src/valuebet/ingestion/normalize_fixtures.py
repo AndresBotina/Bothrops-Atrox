@@ -195,6 +195,22 @@ def _record_quality_check(session: Session, run_id: uuid.UUID, stats: FixtureSta
     session.flush()
 
 
+def _normalize_fixtures_payload(
+    session: Session, source_id: uuid.UUID, payload: dict, stats: FixtureStats
+) -> None:
+    """Proyecta un payload /fixtures a `core.matches` (sin abrir corrida propia).
+
+    Reutilizable por el orquestador (HU 1.5.1) y por `normalize_fixtures`.
+    """
+    try:
+        entries = parse_fixtures(payload)
+    except ValidationError as exc:
+        msg = f"payload de /fixtures no validó contra el esquema: {exc}"
+        raise ValueError(msg) from exc
+    for entry in entries:
+        _normalize_one(session, source_id, entry, stats)
+
+
 def normalize_fixtures(*, sessionmaker_=None) -> FixtureStats:
     """Normaliza los partidos desde el último raw /fixtures disponible.
 
@@ -209,13 +225,7 @@ def normalize_fixtures(*, sessionmaker_=None) -> FixtureStats:
 
         payload = _latest_fixtures_payload(session, source_id)
         if payload is not None:
-            try:
-                entries = parse_fixtures(payload)
-            except ValidationError as exc:
-                msg = f"payload de /fixtures no validó contra el esquema: {exc}"
-                raise ValueError(msg) from exc
-            for entry in entries:
-                _normalize_one(session, source_id, entry, stats)
+            _normalize_fixtures_payload(session, source_id, payload, stats)
 
         run.rows_written = stats.created + stats.updated
         _record_quality_check(session, run.run_id, stats)

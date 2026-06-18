@@ -10,15 +10,18 @@ from valuebet.config.settings import Settings, get_settings
 from valuebet.ingestion.normalize_catalog import normalize_catalog
 from valuebet.ingestion.normalize_fixtures import normalize_fixtures
 from valuebet.ingestion.normalize_stats import normalize_stats
+from valuebet.ingestion.orchestrate import ingest_league_season
 from valuebet.ingestion.raw import ingestion_run
 
 app = typer.Typer(help="valuebet — detección de valor en apuestas de fútbol.")
 sources_app = typer.Typer(help="Gestión del registro de fuentes (meta.sources).")
 fetch_app = typer.Typer(help="Fetch de datos crudos hacia raw.payloads.")
 normalize_app = typer.Typer(help="Normalización de raw hacia core.")
+ingest_app = typer.Typer(help="Flujos de ingesta encadenados (fetch → raw → normalize).")
 app.add_typer(sources_app, name="sources")
 app.add_typer(fetch_app, name="fetch")
 app.add_typer(normalize_app, name="normalize")
+app.add_typer(ingest_app, name="ingest")
 
 
 @sources_app.command("seed")
@@ -148,6 +151,50 @@ def normalize_stats_cmd() -> None:
     )
     if result.issues:
         typer.echo(f"  incidencias (ver data_quality_checks): {result.issues}")
+
+
+@ingest_app.command("league-season")
+def ingest_league_season_cmd(
+    league: int = typer.Option(..., "--league", help="ID de liga de API-Football."),
+    season: int = typer.Option(..., "--season", help="Temporada (año)."),
+    request_budget: int = typer.Option(
+        None, "--request-budget", help="Tope de peticiones para esta corrida."
+    ),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--no-skip-existing",
+        help="Evita refetch de lo ya presente en core (ahorra cuota).",
+    ),
+) -> None:
+    """Encadena catálogo → partidos → stats para una (liga, temporada)."""
+    settings = get_settings()
+    key = _require_api_key(settings)
+
+    with open_adapter(key) as adapter:
+        summary = ingest_league_season(
+            adapter,
+            league,
+            season,
+            request_budget=request_budget,
+            skip_existing=skip_existing,
+        )
+
+    if summary.catalog_skipped:
+        cat = "omitido"
+    else:
+        cat = f"nuevas={summary.catalog.created}, resueltas={summary.catalog.resolved}"
+    typer.echo(f"ingest league={league} season={season} → {summary.status.upper()}")
+    typer.echo(f"  catálogo: {cat}")
+    typer.echo(
+        f"  partidos: nuevos={summary.fixtures.created}, actualizados={summary.fixtures.updated}"
+    )
+    typer.echo(
+        f"  stats: filas={summary.stats.rows_upserted}, "
+        f"sin_stats={summary.stats.matches_without_stats}, "
+        f"ya_existentes={summary.stats_skipped_existing}, "
+        f"pendientes={summary.stats_pending}, fallidos={summary.stats_failed}"
+    )
+    typer.echo(f"  peticiones consumidas: {summary.requests_made}")
 
 
 if __name__ == "__main__":

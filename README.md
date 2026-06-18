@@ -60,7 +60,25 @@ valida con Pydantic y proyecta a `core.countries`, `core.competitions`,
 re-ejecutarlo no duplica entidades. `raw` queda intacto (esta capa sólo lee de
 `raw` y escribe en `core`).
 
-Con el catálogo ya en `core`, ingesta y normaliza los partidos:
+### Todo de una vez: `ingest league-season`
+
+El comando que **encadena todo** en el orden de dependencias correcto (catálogo →
+partidos → stats) para una liga/temporada, en una sola corrida auditable:
+
+```bash
+uv run valuebet ingest league-season --league 39 --season 2023
+uv run valuebet ingest league-season --league 39 --season 2023 --request-budget 50
+uv run valuebet ingest league-season --league 39 --season 2023 --no-skip-existing
+```
+
+Todos los payloads de los sub-fetches quedan ligados a una única fila en
+`meta.ingestion_runs`. `--request-budget` limita las peticiones (útil con el tier
+gratuito de 100/día): al alcanzarlo, la corrida cierra en `partial` registrando lo
+pendiente, sin fallar, y una corrida posterior la completa. `--skip-existing` (por
+defecto) evita refetch de lo que ya está en `core`. Si el fetch de stats de un
+partido falla, el flujo sigue con el resto y la corrida queda `partial`.
+
+Los pasos siguen disponibles por separado (útiles para depurar):
 
 ```bash
 uv run valuebet fetch fixtures --league 39 --season 2023   # partidos -> raw

@@ -63,11 +63,17 @@ class RunHandle:
     session: Session
     run_id: uuid.UUID
     rows_written: int = field(default=0)
+    # Permite a un orquestador cerrar la corrida en 'partial' (p. ej. budget agotado
+    # o sub-pasos no fatales omitidos) en lugar del 'success' por defecto.
+    status_override: str | None = field(default=None)
 
     def persist(self, result: RawFetchResult) -> uuid.UUID:
         payload_id = persist_payload(self.session, result, ingestion_run_id=self.run_id)
         self.rows_written += 1
         return payload_id
+
+    def mark_partial(self) -> None:
+        self.status_override = "partial"
 
 
 @contextmanager
@@ -109,7 +115,7 @@ def ingestion_run(
             session.commit()
             raise
         else:
-            run.status = "success"
+            run.status = handle.status_override or "success"
             run.rows_written = handle.rows_written
             run.finished_at = datetime.now(UTC)
             session.add(run)
