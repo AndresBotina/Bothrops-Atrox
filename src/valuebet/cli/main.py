@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 
 from valuebet.adapters.api_football import open_adapter
 from valuebet.adapters.sources import seed_sources
 from valuebet.config.settings import Settings, get_settings
+from valuebet.ingestion.coverage import coverage_report, export_csv, verify_xg
 from valuebet.ingestion.normalize_catalog import normalize_catalog
 from valuebet.ingestion.normalize_fixtures import normalize_fixtures
 from valuebet.ingestion.normalize_stats import normalize_stats
@@ -18,10 +21,12 @@ sources_app = typer.Typer(help="Gestión del registro de fuentes (meta.sources).
 fetch_app = typer.Typer(help="Fetch de datos crudos hacia raw.payloads.")
 normalize_app = typer.Typer(help="Normalización de raw hacia core.")
 ingest_app = typer.Typer(help="Flujos de ingesta encadenados (fetch → raw → normalize).")
+discover_app = typer.Typer(help="Descubrimiento de catálogo (catálogo global de ligas).")
 app.add_typer(sources_app, name="sources")
 app.add_typer(fetch_app, name="fetch")
 app.add_typer(normalize_app, name="normalize")
 app.add_typer(ingest_app, name="ingest")
+app.add_typer(discover_app, name="discover")
 
 
 @sources_app.command("seed")
@@ -29,6 +34,10 @@ def sources_seed() -> None:
     """Siembra/actualiza las fuentes conocidas en meta.sources (idempotente)."""
     n = seed_sources()
     typer.echo(f"Fuentes sembradas/actualizadas: {n}")
+
+
+def _yn(value: bool) -> str:
+    return "Y" if value else "."
 
 
 def _require_api_key(settings: Settings) -> str:
@@ -195,6 +204,83 @@ def ingest_league_season_cmd(
         f"pendientes={summary.stats_pending}, fallidos={summary.stats_failed}"
     )
     typer.echo(f"  peticiones consumidas: {summary.requests_made}")
+
+
+@discover_app.command("leagues")
+def discover_leagues() -> None:
+    """Trae el catálogo GLOBAL de ligas (sin filtro de país) a raw. Cuesta 1 petición."""
+    settings = get_settings()
+    key = _require_api_key(settings)
+
+    with (
+        open_adapter(key) as adapter,
+        ingestion_run("api_sports", "discover_leagues") as run,
+    ):
+        result = adapter.fetch_leagues()  # sin params → todas las ligas del mundo
+        payload_id = run.persist(result)
+
+    typer.echo(
+        f"discover leagues: results={result.payload.get('results')} → raw.payloads {payload_id}"
+    )
+
+
+@app.command("coverage")
+def coverage(
+    country: str = typer.Option(None, "--country", help="Filtra por país (nombre exacto)."),
+    xg_probable: bool = typer.Option(
+        False, "--xg-probable", help="Sólo ligas con coverage que hace xG probable."
+    ),
+    season_min: int = typer.Option(
+        None, "--season-min", help="Sólo ligas con temporada más reciente >= año."
+    ),
+    csv_path: str = typer.Option(None, "--csv", help="Exporta la tabla a un CSV."),
+) -> None:
+    """Lista la cobertura por liga (lee el último /leagues de raw; no llama a la API)."""
+    rows = coverage_report(country=country, xg_probable=xg_probable, season_min=season_min)
+    if not rows:
+        typer.echo("Sin datos: corre 'valuebet discover leagues' primero.")
+        raise typer.Exit(code=0)
+
+    header = (
+        f"{'id':>6}  {'xg':<3} {'country':<18} {'league':<30} {'seas':>4} "
+        f"{'ev':<3}{'lu':<3}{'sf':<3}{'sp':<3}{'std':<4}{'odd':<4}"
+    )
+    typer.echo(header)
+    typer.echo("-" * len(header))
+    for r in rows:
+        typer.echo(
+            f"{r.league_id:>6}  {('YES' if r.xg_probable else 'no'):<3} "
+            f"{(r.country or '')[:18]:<18} {r.name[:30]:<30} {str(r.season or ''):>4} "
+            f"{_yn(r.events):<3}{_yn(r.lineups):<3}{_yn(r.statistics_fixtures):<3}"
+            f"{_yn(r.statistics_players):<3}{_yn(r.standings):<4}{_yn(r.odds):<4}"
+        )
+    typer.echo(f"\n{len(rows)} ligas (xg_probable={sum(1 for r in rows if r.xg_probable)}).")
+
+    if csv_path is not None:
+        export_csv(rows, Path(csv_path))
+        typer.echo(f"CSV exportado a {csv_path}")
+
+
+@app.command("verify-xg")
+def verify_xg_cmd(
+    league: int = typer.Option(..., "--league", help="ID de liga de API-Football."),
+    season: int = typer.Option(..., "--season", help="Temporada (año)."),
+) -> None:
+    """Confirma con datos REALES si una liga-temporada entrega xG. Cuesta ~2 peticiones."""
+    settings = get_settings()
+    key = _require_api_key(settings)
+
+    with open_adapter(key) as adapter:
+        result = verify_xg(adapter, league, season)
+
+    veredicto = "sí" if result.xg_real else "no"
+    typer.echo(f"Liga {league} temporada {season}: xG REAL = {veredicto}")
+    if result.fixture_id is not None:
+        typer.echo(
+            f"  fixture de muestra: {result.fixture_id}, expected_goals={result.example_value}"
+        )
+    if result.note:
+        typer.echo(f"  nota: {result.note}")
 
 
 if __name__ == "__main__":

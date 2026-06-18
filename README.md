@@ -45,6 +45,30 @@ Cada fetch deja el payload crudo en `raw.payloads` ligado a una corrida en
 `meta.ingestion_runs`. El tier gratuito limita a ~10 req/min; el cliente HTTP
 respeta ese intervalo automáticamente.
 
+## Descubrimiento de cobertura (qué ligas modelar)
+
+API-Football promete cobertura (stats/eventos/lineups) pero no siempre cumple: hay
+ligas que declaran estadísticas y aun así **no entregan xG real**. El flujo de
+descubrimiento ayuda a decidir qué ligas valen la pena, gastando muy poca cuota:
+
+```bash
+# 1) catálogo GLOBAL de ligas con su coverage (1 sola petición)
+uv run valuebet discover leagues
+
+# 2) lista de cobertura por liga (solo lectura de raw; 0 peticiones)
+uv run valuebet coverage --xg-probable --season-min 2022
+uv run valuebet coverage --country Colombia --csv ligas.csv
+
+# 3) confirmación REAL de xG sobre una candidata (~2 peticiones)
+uv run valuebet verify-xg --league 39 --season 2023
+```
+
+`coverage` deriva una columna `xg_probable` = (`statistics_players` ∧ `events` ∧
+`statistics_fixtures`): una **heurística**, no una garantía. Por eso `verify-xg`
+trae un partido terminal real y comprueba si `expected_goals` viene poblado, con un
+veredicto claro ("xG REAL = sí/no"). Coste total típico del descubrimiento:
+1 (discover) + 0 (coverage) + ~2 por liga verificada.
+
 ### Flujo: fetch → normalize
 
 Una vez que el catálogo crudo está en `raw`, normalízalo a las entidades `core`:
