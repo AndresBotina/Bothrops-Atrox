@@ -9,6 +9,7 @@ import typer
 from valuebet.adapters.api_football import open_adapter
 from valuebet.adapters.sources import seed_sources
 from valuebet.config.settings import Settings, get_settings
+from valuebet.ingestion.backfill import run_backfill
 from valuebet.ingestion.coverage import coverage_report, export_csv, verify_xg
 from valuebet.ingestion.normalize_catalog import normalize_catalog
 from valuebet.ingestion.normalize_fixtures import normalize_fixtures
@@ -38,6 +39,21 @@ def sources_seed() -> None:
 
 def _yn(value: bool) -> str:
     return "Y" if value else "."
+
+
+def _parse_int_list(raw: str) -> list[int]:
+    """Parsea '39,140' o rangos '2015-2024' (o mezcla 'a,b-c') a una lista de ints."""
+    out: list[int] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "-" in token:
+            lo, hi = token.split("-", 1)
+            out.extend(range(int(lo), int(hi) + 1))
+        else:
+            out.append(int(token))
+    return out
 
 
 def _require_api_key(settings: Settings) -> str:
@@ -259,6 +275,47 @@ def coverage(
     if csv_path is not None:
         export_csv(rows, Path(csv_path))
         typer.echo(f"CSV exportado a {csv_path}")
+
+
+@app.command("backfill")
+def backfill(
+    leagues: str = typer.Option(..., "--leagues", help="IDs de liga: '39,140'."),
+    seasons: str = typer.Option(
+        ..., "--seasons", help="Años: lista '2022,2023' o rango '2015-2024' (o mezcla)."
+    ),
+    request_budget: int = typer.Option(
+        None, "--request-budget", help="Tope DURO de peticiones para todo el lote."
+    ),
+    skip_existing: bool = typer.Option(
+        True, "--skip-existing/--no-skip-existing", help="Salta lo ya completo en core."
+    ),
+) -> None:
+    """Backfill histórico reanudable sobre varias (liga, temporada)."""
+    settings = get_settings()
+    key = _require_api_key(settings)
+    targets = [(lg, ss) for lg in _parse_int_list(leagues) for ss in _parse_int_list(seasons)]
+
+    with open_adapter(key) as adapter:
+        summary = run_backfill(
+            adapter, targets, request_budget=request_budget, skip_existing=skip_existing
+        )
+
+    typer.echo(f"backfill → {summary.status.upper()} ({len(targets)} targets)")
+    typer.echo(
+        f"{'league':>7} {'season':>6}  {'estado':<9} {'partidos':>8} {'stats':>6} {'reqs':>5}"
+    )
+    typer.echo("-" * 50)
+    for t in summary.targets:
+        typer.echo(
+            f"{t.league_id:>7} {t.season:>6}  {t.state:<9} {t.n_matches:>8} "
+            f"{t.n_stats_rows:>6} {t.requests:>5}"
+        )
+    typer.echo(f"\npeticiones consumidas: {summary.requests_made}")
+    pendientes = [
+        f"{t.league_id}/{t.season}" for t in summary.targets if t.state in ("partial", "pending")
+    ]
+    if pendientes:
+        typer.echo(f"falta (re-ejecuta para continuar): {', '.join(pendientes)}")
 
 
 @app.command("verify-xg")

@@ -102,6 +102,35 @@ pendiente, sin fallar, y una corrida posterior la completa. `--skip-existing` (p
 defecto) evita refetch de lo que ya está en `core`. Si el fetch de stats de un
 partido falla, el flujo sigue con el resto y la corrida queda `partial`.
 
+### Backfill histórico: `valuebet backfill`
+
+Para acumular varias temporadas de varias ligas en un solo lote **reanudable**:
+
+```bash
+# rango de temporadas (o lista '2022,2023,2024')
+uv run valuebet backfill --leagues 39,140 --seasons 2015-2024
+uv run valuebet backfill --leagues 39,140 --seasons 2015-2024 --request-budget 4000
+```
+
+`backfill` recorre cada `(liga, temporada)` llamando a `ingest league-season`, bajo
+una corrida padre (`flow='backfill'`) que agrupa el lote. Propiedades clave:
+
+- **Reanudable desde el estado real en core** (no un archivo de cursor): al arrancar,
+  cada `(liga, temporada)` se evalúa leyendo la base. Una está *completa* si tiene
+  catálogo, partidos, y todos sus partidos terminales tienen stats (o un marcador
+  `match_no_stats`). Si una corrida se interrumpe, la siguiente recalcula qué falta y
+  continúa **sin re-fetchear** lo ya hecho.
+- **`--request-budget` es un tope DURO de seguridad** global del lote. Nunca se excede:
+  al agotarse, el backfill se detiene limpio (`partial`) y deja el resto *pendiente*;
+  re-ejecutarlo lo completa. Con el plan Pro (7.500 req/día) un histórico profundo cabe
+  en una corrida, pero el tope protege ante interrupciones y errores.
+- **Profundidad variable por liga**: una temporada sin datos (fixtures vacíos) no es
+  error — se registra como `temporada_sin_datos` en `meta.data_quality_checks` y el lote
+  sigue. Una corrida posterior la salta sin gastar peticiones.
+
+El comando imprime, por `(liga, temporada)`: estado (complete/partial/pending/no_data),
+partidos, filas de stats y peticiones consumidas, y qué falta para una próxima corrida.
+
 Los pasos siguen disponibles por separado (útiles para depurar):
 
 ```bash

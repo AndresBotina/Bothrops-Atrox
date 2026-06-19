@@ -14,7 +14,7 @@
 - [x] HU 1.3.4  Normalización de stats post-partido (match_team_stats)
 - [ ] HU 1.4.1  Adapter de cuotas + snapshots
 - [x] HU 1.5.1  Flujo de ingesta encadenado
-- [ ] HU 1.5.2  Backfill histórico reanudable
+- [x] HU 1.5.2  Backfill histórico reanudable
 - [ ] HU 1.6.1  Chequeos de calidad
 - [ ] HU 1.6.2  Reporte de cobertura
 

@@ -71,6 +71,7 @@ class IngestSummary:
 
     league_id: int
     season: int
+    run_id: uuid.UUID | None = None  # id de la corrida hija (trazabilidad backfill)
     catalog: NormalizeStats = field(default_factory=NormalizeStats)
     catalog_skipped: bool = False
     fixtures: FixtureStats = field(default_factory=FixtureStats)
@@ -90,6 +91,7 @@ class IngestSummary:
         return {
             "league": self.league_id,
             "season": self.season,
+            "run_id": str(self.run_id) if self.run_id else None,
             "catalog": self.catalog.as_details(),
             "catalog_skipped": self.catalog_skipped,
             "fixtures": self.fixtures.as_details(),
@@ -264,6 +266,7 @@ def ingest_league_season(
                 adapter, run, session, source_id, season_id, budget, skip_existing, summary
             )
 
+        summary.run_id = run.run_id
         summary.requests_made = budget.used
         summary.status = "partial" if summary.is_partial() else "success"
         if summary.status == "partial":
