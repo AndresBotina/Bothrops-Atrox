@@ -19,8 +19,29 @@ constitución). La planificación por historias está en `docs/backlog.md`.
 ```bash
 uv sync                       # crea el entorno e instala dependencias
 cp .env.example .env          # configura tus credenciales (no se versiona)
-uv run alembic upgrade head   # aplica el esquema a la base
-uv run pytest                 # corre la suite
+uv run alembic upgrade head   # aplica el esquema a la base de trabajo
+uv run pytest                 # corre la suite (contra la base de TEST, ver abajo)
+```
+
+### Dos bases de datos: trabajo y tests (¡no las mezcles!)
+
+El proyecto usa **dos** bases Postgres separadas, configuradas en `.env`:
+
+- `DATABASE_URL` → base de **trabajo/real** (donde vive el histórico descargado).
+- `TEST_DATABASE_URL` → base de **tests**, desechable. La suite la **migra y trunca**,
+  así que debe ser distinta de la real.
+
+`pytest` usa **exclusivamente** `TEST_DATABASE_URL` (el `conftest.py` la fuerza). Como
+red de seguridad, la suite **aborta con error claro** si `TEST_DATABASE_URL` no está
+definida o si coincide con `DATABASE_URL` — mejor no correr que borrar datos reales.
+
+Crea la base de test una sola vez:
+
+```bash
+# con el contenedor Docker del proyecto
+docker exec valuebet_db createdb -U valuebet valuebet_test
+# o con un Postgres local
+createdb valuebet_test
 ```
 
 ## Ingesta de catálogo (API-Football)
