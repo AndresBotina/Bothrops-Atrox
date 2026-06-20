@@ -160,6 +160,33 @@ posesión `"55%"` a fracción `0.55` y el xG a float. **La ausencia no es cero**
 partido sin stats se registra en `meta.data_quality_checks` (no se inserta una fila
 de puros NULL). Es idempotente: `UNIQUE(match_id, team_id)` → UPSERT.
 
+## Auditoría de calidad de datos
+
+Antes de modelar (Fase 2+) conviene saber con qué materia prima contamos. La auditoría
+es **solo lectura** sobre `core` (no llama a la API) y registra sus hallazgos en
+`meta.data_quality_checks`:
+
+```bash
+uv run valuebet quality audit            # imprime un reporte y persiste los chequeos
+uv run valuebet quality audit --csv q.csv  # además exporta el detalle a CSV
+```
+
+Corre tres familias de chequeos:
+
+- **Integridad** (severidad `error`/`critical`): huérfanos, referencias rotas, partidos
+  terminales sin goles (o goles sin estado terminal), `source_entity_map` con
+  `internal_id` inexistente.
+- **Consistencia** (`error`/`warning`): `possession` fuera de `[0,1]`, `xg` negativo,
+  goles negativos o absurdamente altos (>20), y un **schema `pandera`** que valida los
+  rangos de `match_team_stats`.
+- **Completitud** (`info`/`warning`, es cobertura, no un fallo): foto por `(liga,
+  temporada)` de partidos / terminales / con stats / con xG; partidos jugados sin stats;
+  partidos con stats pero sin xG (esperado en temporadas < 2023); equipos sin partidos.
+
+La severidad distingue **bugs de datos** (que no deberían pasar) de **cobertura
+esperada** (un partido sin xG en 2015 es normal). El detalle de cada chequeo incluye
+conteos e ids de ejemplo.
+
 ## Estructura (src-layout)
 
 ```

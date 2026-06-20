@@ -37,6 +37,17 @@ class DefinitiveHTTPError(HTTPError):
     """Error definitivo (4xx): NO se reintenta, se propaga."""
 
 
+class QuotaExceededError(HTTPError):
+    """Cuota/límite de la API agotado (HTTP 429).
+
+    SUPUESTO (documentado): tratamos un 429 como agotamiento de la cuota DIARIA, que
+    NO se recupera reintentando con backoff (sólo vuelve tras el reset diario). Por
+    eso se propaga de inmediato (no es _RETRYABLE) y las capas superiores lo usan como
+    señal de parada limpia. Un 429 por límite POR MINUTO (con Retry-After) podría
+    manejarse distinto en el futuro; por ahora no se implementa.
+    """
+
+
 # Excepciones que disparan reintento: transitorias propias + transporte de httpx
 # (httpx.TimeoutException y httpx.NetworkError heredan de httpx.TransportError).
 _RETRYABLE = (TransientHTTPError, httpx.TransportError)
@@ -107,6 +118,13 @@ class HTTPClient:
         response = self._client.request(method, url, params=dict(params or {}))
 
         status = response.status_code
+        if status == 429:
+            # Cuota agotada: NO reintentar (no se recupera con backoff). Propagar ya.
+            raise QuotaExceededError(
+                "cuota/límite de la API agotado (429)",
+                url=str(response.request.url),
+                status=status,
+            )
         if status >= 500:
             raise TransientHTTPError(
                 "respuesta 5xx del servidor", url=str(response.request.url), status=status

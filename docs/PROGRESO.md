@@ -15,7 +15,7 @@
 - [ ] HU 1.4.1  Adapter de cuotas + snapshots
 - [x] HU 1.5.1  Flujo de ingesta encadenado
 - [x] HU 1.5.2  Backfill histórico reanudable
-- [ ] HU 1.6.1  Chequeos de calidad
+- [x] HU 1.6.1  Chequeos de calidad
 - [ ] HU 1.6.2  Reporte de cobertura
 
 ## Fases 2-6: SIN EMPEZAR
@@ -37,3 +37,7 @@ Evaluador/backtesting · Dixon-Coles · Detección de valor · Retroalimentació
   por modelo; escalar a más ligas reusa la misma arquitectura (solo cambia el id).
 - Colombia Primera A descartada para v1: tiene stats pero NO xG (limitación de la
   liga, no del plan). El sistema soporta sumarla luego sin refactor. 
+- Cobertura confirmada (Premier 39, LaLiga 140): datos básicos (goles, tiros,
+  posesión) desde 2015; xG REAL solo desde 2023 (2023-2025). Backfill v1 = 2015-2025.
+  Años sin xG entrenan Dixon-Coles sobre goles; xG enriquece 2023+ vía feature
+  store opcional.

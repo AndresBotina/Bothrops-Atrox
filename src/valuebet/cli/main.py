@@ -16,6 +16,7 @@ from valuebet.ingestion.normalize_fixtures import normalize_fixtures
 from valuebet.ingestion.normalize_stats import normalize_stats
 from valuebet.ingestion.orchestrate import ingest_league_season
 from valuebet.ingestion.raw import ingestion_run
+from valuebet.quality.checks import export_audit_csv, run_quality_audit
 
 app = typer.Typer(help="valuebet — detección de valor en apuestas de fútbol.")
 sources_app = typer.Typer(help="Gestión del registro de fuentes (meta.sources).")
@@ -23,11 +24,13 @@ fetch_app = typer.Typer(help="Fetch de datos crudos hacia raw.payloads.")
 normalize_app = typer.Typer(help="Normalización de raw hacia core.")
 ingest_app = typer.Typer(help="Flujos de ingesta encadenados (fetch → raw → normalize).")
 discover_app = typer.Typer(help="Descubrimiento de catálogo (catálogo global de ligas).")
+quality_app = typer.Typer(help="Auditoría de calidad de datos sobre core (solo lectura).")
 app.add_typer(sources_app, name="sources")
 app.add_typer(fetch_app, name="fetch")
 app.add_typer(normalize_app, name="normalize")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(discover_app, name="discover")
+app.add_typer(quality_app, name="quality")
 
 
 @sources_app.command("seed")
@@ -311,11 +314,56 @@ def backfill(
             f"{t.n_stats_rows:>6} {t.requests:>5}"
         )
     typer.echo(f"\npeticiones consumidas: {summary.requests_made}")
+    if summary.quota_exceeded:
+        typer.secho(
+            "DETENIDO por límite de cuota de la API; reanuda tras el reset diario "
+            "con el mismo comando.",
+            fg=typer.colors.YELLOW,
+        )
     pendientes = [
         f"{t.league_id}/{t.season}" for t in summary.targets if t.state in ("partial", "pending")
     ]
     if pendientes:
         typer.echo(f"falta (re-ejecuta para continuar): {', '.join(pendientes)}")
+
+
+@quality_app.command("audit")
+def quality_audit(
+    csv_path: str = typer.Option(None, "--csv", help="Exporta el detalle de la auditoría a CSV."),
+) -> None:
+    """Corre todos los chequeos de calidad sobre core y los registra (no llama a la API)."""
+    audit = run_quality_audit()
+
+    header = f"{'severidad':<9} {'ok':<3} {'conteo':>7}  chequeo"
+    typer.echo(header)
+    typer.echo("-" * 60)
+    for r in audit.results:
+        ok = "OK" if r.passed else "!!"
+        color = None
+        if not r.passed and r.severity in ("error", "critical"):
+            color = typer.colors.RED
+        elif not r.passed and r.severity == "warning":
+            color = typer.colors.YELLOW
+        typer.secho(f"{r.severity:<9} {ok:<3} {r.count:>7}  {r.name}", fg=color)
+
+    problemas = [r for r in audit.results if not r.passed and r.severity in ("error", "critical")]
+    typer.echo(f"\nchequeos: {len(audit.results)} · con error/critical: {len(problemas)}")
+
+    # Foto de cobertura por temporada.
+    cobertura = next((r for r in audit.results if r.name == "completitud_por_temporada"), None)
+    if cobertura and cobertura.details.get("by_season"):
+        typer.echo(
+            "\ncobertura por temporada (competición · temporada · partidos/terminales/stats/xG):"
+        )
+        for row in cobertura.details["by_season"]:
+            typer.echo(
+                f"  {row['competition']} · {row['season']}: "
+                f"{row['n_matches']}/{row['n_terminal']}/{row['n_with_stats']}/{row['n_with_xg']}"
+            )
+
+    if csv_path is not None:
+        export_audit_csv(audit.results, Path(csv_path))
+        typer.echo(f"\nCSV exportado a {csv_path}")
 
 
 @app.command("verify-xg")

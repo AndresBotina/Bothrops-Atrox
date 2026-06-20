@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import func, select, text
 
 from valuebet.adapters.base import RawFetchResult
+from valuebet.adapters.http import QuotaExceededError
 from valuebet.adapters.sources import seed_sources
 from valuebet.db.models.core import Match, MatchTeamStats
 from valuebet.db.models.meta import IngestionRun
@@ -40,16 +41,29 @@ class FakeBackfillAdapter:
 
     source_code = "api_sports"
 
-    def __init__(self, *, empty: set[tuple[int, int]] | None = None, n_finished: int = 2) -> None:
+    def __init__(
+        self,
+        *,
+        empty: set[tuple[int, int]] | None = None,
+        n_finished: int = 2,
+        quota_after: int | None = None,
+    ) -> None:
         self.empty = set(empty or set())
         self.n_finished = n_finished
+        self.quota_after = quota_after
         self.requests = 0
+
+    def _tick(self) -> None:
+        """Cuenta la petición y simula 429 si se pasó `quota_after`."""
+        self.requests += 1
+        if self.quota_after is not None and self.requests > self.quota_after:
+            raise QuotaExceededError("cuota agotada (simulada)", url="http://test", status=429)
 
     def _teams(self, league: int) -> tuple[int, int]:
         return league * 1000 + 1, league * 1000 + 2
 
     def fetch_leagues(self, params=None, *, league_id=None) -> RawFetchResult:
-        self.requests += 1
+        self._tick()
         season = (params or {}).get("season") or 2023
         payload = {
             "errors": [],
@@ -82,7 +96,7 @@ class FakeBackfillAdapter:
         )
 
     def fetch_teams(self, league_id, season) -> RawFetchResult:
-        self.requests += 1
+        self._tick()
         t1, t2 = self._teams(league_id)
         payload = {
             "errors": [],
@@ -123,7 +137,7 @@ class FakeBackfillAdapter:
         )
 
     def fetch_fixtures(self, league_id, season) -> RawFetchResult:
-        self.requests += 1
+        self._tick()
         if (league_id, season) in self.empty:
             response = []
         else:
@@ -153,7 +167,7 @@ class FakeBackfillAdapter:
         )
 
     def fetch_fixture_statistics(self, fixture_id) -> RawFetchResult:
-        self.requests += 1
+        self._tick()
         league = fixture_id // 100000
         t1, t2 = self._teams(league)
 
@@ -268,6 +282,29 @@ def test_variable_depth_empty_season_recorded_not_fatal(seeded) -> None:
     no_data_target = next(t for t in second.targets if (t.league_id, t.season) == (39, 2099))
     assert no_data_target.state == "no_data"
     assert no_data_target.requests == 0
+
+
+def test_quota_exceeded_stops_clean_partial_then_resumes(seeded) -> None:
+    targets = [(39, 2023), (140, 2023)]
+    # quota_after=5: la 1ra league-season (5 peticiones) completa; la 2ª recibe 429
+    # en su primer fetch -> parada limpia.
+    first = run_backfill(FakeBackfillAdapter(quota_after=5), targets)
+
+    assert first.status == "partial"
+    assert first.quota_exceeded is True
+    assert "cuota" in (first.stop_reason or "")
+    assert _state(first, 39, 2023) == "complete"  # lo ya hecho se preserva
+    assert _state(first, 140, 2023) in ("partial", "pending")
+    with get_session() as session:
+        # Sólo la 1ra liga quedó ingerida (2 partidos, 4 filas de stats).
+        assert session.scalar(select(func.count()).select_from(MatchTeamStats)) == 4
+
+    # Tras el "reset" (sin 429), una corrida posterior completa lo pendiente.
+    second = run_backfill(FakeBackfillAdapter(), targets)
+    assert second.status == "success"
+    assert all(t.state == "complete" for t in second.targets)
+    with get_session() as session:
+        assert session.scalar(select(func.count()).select_from(MatchTeamStats)) == 8
 
 
 def test_completeness_partial_when_stats_missing(seeded) -> None:

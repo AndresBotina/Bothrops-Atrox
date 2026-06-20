@@ -31,6 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from valuebet.adapters.api_football import ApiFootballAdapter
+from valuebet.adapters.http import QuotaExceededError
 from valuebet.db.models.core import Match, MatchTeamStats, SourceEntityMap
 from valuebet.db.models.meta import DataQualityCheck
 from valuebet.ingestion.normalize_catalog import (
@@ -81,11 +82,17 @@ class IngestSummary:
     stats_failed: int = 0
     requests_made: int = 0
     budget_exhausted: bool = False
+    quota_exceeded: bool = False
     issues: list[dict] = field(default_factory=list)
     status: str = "success"
 
     def is_partial(self) -> bool:
-        return self.budget_exhausted or self.stats_pending > 0 or self.stats_failed > 0
+        return (
+            self.budget_exhausted
+            or self.quota_exceeded
+            or self.stats_pending > 0
+            or self.stats_failed > 0
+        )
 
     def as_details(self) -> dict:
         return {
@@ -101,6 +108,7 @@ class IngestSummary:
             "stats_failed": self.stats_failed,
             "requests_made": self.requests_made,
             "budget_exhausted": self.budget_exhausted,
+            "quota_exceeded": self.quota_exceeded,
             "status": self.status,
             "issues": self.issues,
         }
@@ -183,6 +191,9 @@ def _ingest_stats(
         budget.spend()
         try:
             stats_res = adapter.fetch_fixture_statistics(int(fixture_ext))
+        except QuotaExceededError:
+            # Cuota agotada: NO es "un partido que falla"; corta el flujo (parada limpia).
+            raise
         except Exception as exc:  # noqa: BLE001 — un partido no debe tumbar el flujo
             summary.stats_failed += 1
             summary.issues.append({"fixture_id": fixture_ext, "stage": "fetch", "error": str(exc)})
@@ -242,29 +253,41 @@ def ingest_league_season(
         source_id = _get_source_id(session)
         sport_id = _ensure_sport(session)
 
-        # 1. CATÁLOGO (equipos+estadios antes que los partidos).
-        if skip_existing and _resolve_via_map(session, source_id, "season", season_ext) is not None:
-            summary.catalog_skipped = True
-        else:
-            _ingest_catalog(
-                adapter, run, session, source_id, sport_id, league_id, season, budget, summary
-            )
+        try:
+            # 1. CATÁLOGO (equipos+estadios antes que los partidos).
+            if (
+                skip_existing
+                and _resolve_via_map(session, source_id, "season", season_ext) is not None
+            ):
+                summary.catalog_skipped = True
+            else:
+                _ingest_catalog(
+                    adapter, run, session, source_id, sport_id, league_id, season, budget, summary
+                )
 
-        # 2. PARTIDOS (antes que las stats).
-        if budget.available():
-            budget.spend()
-            fixtures_res = adapter.fetch_fixtures(league_id, season)
-            run.persist(fixtures_res)
-            _normalize_fixtures_payload(session, source_id, fixtures_res.payload, summary.fixtures)
-        else:
+            # 2. PARTIDOS (antes que las stats).
+            if budget.available():
+                budget.spend()
+                fixtures_res = adapter.fetch_fixtures(league_id, season)
+                run.persist(fixtures_res)
+                _normalize_fixtures_payload(
+                    session, source_id, fixtures_res.payload, summary.fixtures
+                )
+            else:
+                summary.budget_exhausted = True
+
+            # 3. STATS por partido terminal.
+            season_id = _resolve_via_map(session, source_id, "season", season_ext)
+            if season_id is not None:
+                _ingest_stats(
+                    adapter, run, session, source_id, season_id, budget, skip_existing, summary
+                )
+        except QuotaExceededError as exc:
+            # Cuota de la API agotada: parada LIMPIA (no fatal). Se preserva lo ingerido
+            # y la corrida cierra 'partial'; reanudable tras el reset diario.
+            summary.quota_exceeded = True
             summary.budget_exhausted = True
-
-        # 3. STATS por partido terminal.
-        season_id = _resolve_via_map(session, source_id, "season", season_ext)
-        if season_id is not None:
-            _ingest_stats(
-                adapter, run, session, source_id, season_id, budget, skip_existing, summary
-            )
+            summary.issues.append({"stage": "quota", "error": str(exc)})
 
         summary.run_id = run.run_id
         summary.requests_made = budget.used

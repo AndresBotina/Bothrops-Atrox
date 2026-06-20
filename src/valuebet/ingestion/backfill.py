@@ -218,12 +218,23 @@ class BackfillSummary:
     targets: list[TargetResult] = field(default_factory=list)
     requests_made: int = 0
     budget_exhausted: bool = False
+    quota_exceeded: bool = False
     status: str = "success"
+
+    @property
+    def stop_reason(self) -> str | None:
+        if self.quota_exceeded:
+            return "límite de cuota de la API; reanuda tras el reset diario con el mismo comando"
+        if self.budget_exhausted:
+            return "request_budget agotado; re-ejecuta para continuar"
+        return None
 
     def as_details(self) -> dict:
         return {
             "requests_made": self.requests_made,
             "budget_exhausted": self.budget_exhausted,
+            "quota_exceeded": self.quota_exceeded,
+            "stop_reason": self.stop_reason,
             "status": self.status,
             "targets": [
                 {
@@ -285,7 +296,7 @@ def run_backfill(
         session = run.session
         source_id = _get_source_id(session)
 
-        for league_id, season in targets:
+        for index, (league_id, season) in enumerate(targets):
             state = evaluate_target(session, source_id, league_id, season)
             if skip_existing and state.state in ("complete", "no_data"):
                 summary.targets.append(
@@ -339,6 +350,15 @@ def run_backfill(
             )
             if child.budget_exhausted:
                 summary.budget_exhausted = True
+
+            if child.quota_exceeded:
+                # Parada LIMPIA por cuota: lo demás queda pendiente para tras el reset.
+                summary.quota_exceeded = True
+                for lid_rest, season_rest in targets[index + 1 :]:
+                    summary.targets.append(
+                        _build_result(session, source_id, lid_rest, season_rest, "pending", 0)
+                    )
+                break
 
         incomplete = any(t.state in ("partial", "pending") for t in summary.targets)
         summary.status = "partial" if incomplete else "success"
