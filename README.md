@@ -259,6 +259,51 @@ predicciones son la materia prima: las métricas se **recalculan** cruzándolas 
 el resultado real en `core.matches`, sin duplicar datos derivados. Es **idempotente**:
 re-correr con la misma `(name, version)` reemplaza las predicciones, no duplica.
 
+## Modelo Poisson de goles — Fase 3 (HU 3.1)
+
+Primer modelo real, primera capa hacia Dixon-Coles. Cada equipo tiene fuerza de
+**ataque** y **defensa** y hay una **ventaja de local** global; los goles de cada
+lado son Poisson independientes con `log λ` lineal en esas fuerzas. Los parámetros
+se estiman por **máxima verosimilitud** (scipy L-BFGS-B con gradiente analítico) y
+de la matriz de marcadores (0..10 por lado) se agregan las probabilidades 1X2.
+
+Requiere el extra opcional **`modeling`** (numpy/scipy):
+
+```bash
+uv sync --extra modeling
+uv run valuebet backtest --league 39 --from-season 2015 --model poisson --no-persist
+```
+
+Implementa la misma interfaz `PredictionModel` de la Fase 2, así que **enchufa en
+el walk-forward sin tocarlo** (`--model poisson`). Detalles:
+
+- **Identificabilidad**: ataque y defensa se confunden por una constante (aₜ+c,
+  dₜ−c → mismas λ); se fija la media de ataques en 0 (re-centrado tras optimizar).
+- **Equipos sin historia** (ascendidos, inicio de temporada): fuerza neutra
+  (ataque medio, defensa media) en vez de romper.
+- **Parámetros inspeccionables** tras `fit` vía `model.parameters` (ataque/defensa
+  por equipo, ventaja de local) para validar que tienen sentido.
+- **Warm-start** entre reajustes: el walk-forward reajusta tras cada partido, y
+  partir de la solución previa hace el backtest completo (~4160 fits) viable (~25 s).
+
+**No incluye aún** la corrección de marcadores bajos de Dixon-Coles (HU 3.2) ni la
+ponderación temporal (HU 3.3).
+
+### Resultado vs baseline (Premier, id 39, 2015–2025, walk-forward)
+
+El Poisson **mejora al baseline en las métricas objetivo** (Brier y log loss):
+
+| Métrica            | baseline (HU 2.1) | poisson (HU 3.1) |
+|--------------------|-------------------|------------------|
+| Brier score ↓      | 0.6460            | **0.5946**       |
+| Log loss ↓         | 1.0677            | **1.0441**       |
+| Accuracy (ref.)    | 0.4423            | 0.5175           |
+| ECE                | 0.0038            | 0.0170           |
+
+(El baseline está trivialmente calibrado porque predice la frecuencia global y
+nunca se moja; el Poisson da probabilidades más afiladas que cubren todo el rango
+[0,1], a costa de un ECE algo mayor pero con mejor Brier/log loss, que es el norte.)
+
 ## Estructura (src-layout)
 
 ```

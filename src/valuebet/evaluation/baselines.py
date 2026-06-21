@@ -105,7 +105,8 @@ class TeamFrequencyBaseline:
         return Probabilities(home=avg[0], draw=avg[1], away=avg[2])
 
 
-# Registro de baselines disponibles para la CLI (nombre → fábrica).
+# Registro de modelos disponibles para la CLI (nombre → fábrica).
+# Incluye los baselines (vara de referencia) y modelos reales (Poisson, Fase 3).
 def _home_advantage() -> HomeAdvantageBaseline:
     return HomeAdvantageBaseline()
 
@@ -114,15 +115,29 @@ def _team_frequency() -> TeamFrequencyBaseline:
     return TeamFrequencyBaseline()
 
 
+def _poisson():
+    # Import perezoso: el modelo Poisson vive en la capa `modeling` y depende del
+    # extra opcional `modeling` (numpy/scipy). No se importa salvo que se use.
+    try:
+        from valuebet.modeling.poisson import PoissonModel
+    except ImportError as exc:  # pragma: no cover - depende del entorno
+        raise ImportError(
+            "el modelo 'poisson' requiere el extra 'modeling' (numpy/scipy); "
+            "instálalo con 'uv sync --extra modeling'."
+        ) from exc
+    return PoissonModel()
+
+
 BASELINES: dict[str, object] = {
     "baseline": _home_advantage,  # alias por defecto
     "home-advantage": _home_advantage,
     "team-frequency": _team_frequency,
+    "poisson": _poisson,
 }
 
 
 def build_model(name: str):
-    """Instancia un baseline por nombre. Lanza KeyError con los nombres válidos."""
+    """Instancia un modelo por nombre. Lanza KeyError con los nombres válidos."""
     try:
         factory = BASELINES[name]
     except KeyError:

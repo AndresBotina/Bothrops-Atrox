@@ -37,8 +37,28 @@
     predicciones, baseline calibrado ECE≈0.004).
   - NO se implementó Dixon-Coles (Fase 3) ni ROI/CLV (faltan cuotas, Fase 4).
 
-## Fases 3-6: SIN EMPEZAR
-Dixon-Coles · Detección de valor · Retroalimentación · Contexto
+## Fase 3 — Motor estadístico Dixon-Coles: EN CURSO
+- [x] HU 3.1  Modelo POISSON básico de goles (primera capa hacia Dixon-Coles)
+  - `src/valuebet/modeling/poisson.py`: `PoissonModel` implementa `PredictionModel`
+    de la Fase 2 → enchufa en walk_forward SIN tocar el evaluador.
+  - Modelo log-lineal (Maher): ataque/defensa por equipo + ventaja de local;
+    goles Poisson independientes. MLE con scipy L-BFGS-B + gradiente analítico.
+  - Identificabilidad: media de ataques = 0 (re-centrado tras optimizar).
+  - Equipos sin historia → fuerza neutra (ataque medio, defensa media); no rompe.
+  - Parámetros inspeccionables vía `model.parameters` (PoissonParameters).
+  - Warm-start entre reajustes: backtest completo (~4160 fits) en ~25 s.
+  - Registrado en build_model: `valuebet backtest --model poisson`.
+  - Requiere extra `modeling` (numpy/scipy): `uv sync --extra modeling`.
+  - VERIFICACIÓN end-to-end (Premier 39, 2015-2025, vía CLI, solo lectura):
+    Poisson MEJORA al baseline en las métricas objetivo.
+      Brier:    baseline 0.6460  →  poisson 0.5946  ✓
+      Log loss: baseline 1.0677  →  poisson 1.0441  ✓
+      Accuracy (ref): 0.4423 → 0.5175 ; ECE: 0.0038 → 0.0170
+  - NO se implementó la corrección Dixon-Coles (HU 3.2) ni ponderación temporal (HU 3.3).
+
+## Fases 3 (resto)-6: SIN EMPEZAR
+Dixon-Coles (corrección + ponderación temporal) · Detección de valor ·
+Retroalimentación · Contexto
 
 ## Notas / deuda
 - Cobertura API-Football: solo Primera A (COL) tiene stats_fixtures; sin odds para COL.
