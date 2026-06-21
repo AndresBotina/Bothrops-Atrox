@@ -12,14 +12,33 @@
 - [x] HU 1.3.2  Normalización de catálogo a core (identidad + idempotencia)
 - [x] HU 1.3.3  Normalización de partidos (matches)
 - [x] HU 1.3.4  Normalización de stats post-partido (match_team_stats)
-- [ ] HU 1.4.1  Adapter de cuotas + snapshots
+- [x] HU 1.4.1  Adapter de cuotas + snapshots
 - [x] HU 1.5.1  Flujo de ingesta encadenado
 - [x] HU 1.5.2  Backfill histórico reanudable
-- [x] HU 1.6.1  Chequeos de calidad
-- [ ] HU 1.6.2  Reporte de cobertura
+- [x] HU 1.6.1  Chequeos de calidad de datos
+- [x] HU 1.6.2  Reporte de cobertura
 
-## Fases 2-6: SIN EMPEZAR
-Evaluador/backtesting · Dixon-Coles · Detección de valor · Retroalimentación · Contexto
+## Fase 2 — Evaluador / backtesting walk-forward: EN CURSO
+- [x] HU 2.1  Esqueleto del evaluador walk-forward + métricas de calibración + baseline
+  - Interfaz `PredictionModel` (Protocol) en `evaluation/model.py`: `fit`/`predict_proba`.
+    Dixon-Coles (Fase 3) la implementará sin tocar el evaluador.
+  - Baselines: `HomeAdvantageBaseline` (frecuencia global 1X2) y `TeamFrequencyBaseline`
+    (por equipo, suavizada hacia la global). Vara de referencia.
+  - `walk_forward` SIN LOOKAHEAD por construcción (`bisect_left` sobre saques: sólo
+    entrena con partidos estrictamente anteriores; excluye simultáneos). `step` re-entrena
+    por lotes; `min_train` omite partidos sin historia suficiente.
+  - Métricas: Brier y log loss multiclase, accuracy (sólo REFERENCIA), tabla de
+    fiabilidad y ECE. Todo Python puro (sin numpy).
+  - Persistencia en `models.model_versions` + `models.predictions` (3 sel./partido,
+    mercado 1x2); métricas se RECALCULAN desde predicciones + core (no se duplican).
+    Idempotente por (name, version): delete+insert.
+  - CLI `valuebet backtest --league --model [--train-window --from-season --step
+    --min-train --no-persist]`. Verificado sobre datos reales (Premier 39, 4160
+    predicciones, baseline calibrado ECE≈0.004).
+  - NO se implementó Dixon-Coles (Fase 3) ni ROI/CLV (faltan cuotas, Fase 4).
+
+## Fases 3-6: SIN EMPEZAR
+Dixon-Coles · Detección de valor · Retroalimentación · Contexto
 
 ## Notas / deuda
 - Cobertura API-Football: solo Primera A (COL) tiene stats_fixtures; sin odds para COL.
@@ -41,3 +60,12 @@ Evaluador/backtesting · Dixon-Coles · Detección de valor · Retroalimentació
   posesión) desde 2015; xG REAL solo desde 2023 (2023-2025). Backfill v1 = 2015-2025.
   Años sin xG entrenan Dixon-Coles sobre goles; xG enriquece 2023+ vía feature
   store opcional.
+- Histórico descargado y verificado: Premier (39) y La Liga (140), 2015-2025,
+  11 temporadas × 380 = 4180 partidos por liga (8360 total), todos con resultado.
+- Aislamiento de base de tests resuelto y verificado: pytest no toca la base real.
+
+- [x] FASE 1 COMPLETA — ingesta verificada.
+- Auditoría de calidad: 0 errores/críticos. 8360 partidos, 99.98% con stats.
+- xG real confirmado: completo 2023-2025 (ambas ligas), parcial La Liga 2022 (211),
+  ausente 2015-2021. ~2280 partidos con xG, 8360 con goles para Dixon-Coles.
+  

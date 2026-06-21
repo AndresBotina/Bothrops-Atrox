@@ -208,6 +208,57 @@ La severidad distingue **bugs de datos** (que no deberían pasar) de **cobertura
 esperada** (un partido sin xG en 2015 es normal). El detalle de cada chequeo incluye
 conteos e ids de ejemplo.
 
+## Backtesting (evaluador walk-forward) — Fase 2
+
+Antes que cualquier modelo va el **evaluador** (invariante #9): ningún modelo se
+considera válido hasta que el backtest walk-forward lo mide. El comando recorre
+los partidos en orden cronológico y, para cada uno, entrena el modelo **sólo con
+datos anteriores a su saque** y predice; luego compara con el resultado real:
+
+```bash
+uv run valuebet backtest --league 39 --model baseline --from-season 2015
+uv run valuebet backtest --league 140 --model team-frequency --train-window 200 --step 10
+uv run valuebet backtest --league 39 --no-persist        # no escribe en models.*
+```
+
+### Qué mide (y qué NO)
+
+Mide **calidad de predicción y calibración**, no rentabilidad:
+
+- **Brier score** y **log loss** (multiclase 1X2): las métricas objetivo.
+  Penalizan la sobreconfianza; menor es mejor.
+- **Tabla de fiabilidad / ECE**: cuando el modelo dice ~30%, ¿ocurre ~30%?
+- **Accuracy**: se imprime sólo como **referencia**; está prohibido usarla como
+  objetivo (§1 del `docs/CLAUDE.md`).
+
+**NO se mide ROI ni CLV todavía**: requieren cuotas (mercado), que llegan en la
+Fase 4. Esta fase sólo evalúa la *calidad* de la probabilidad.
+
+### Los baselines son la vara de referencia
+
+`--model baseline` (alias de `home-advantage`) predice las **frecuencias
+históricas globales** de local/empate/visitante; `team-frequency` las afina por
+equipo (suavizadas hacia la global). Son el "alumno tonto": cualquier modelo
+serio (Dixon-Coles, Fase 3) **debe superarlos** en Brier/log loss. Por construcción
+están bien calibrados, así que fijan un mínimo exigente.
+
+### Sin lookahead, por construcción
+
+El entrenamiento de cada predicción se obtiene con `bisect_left` sobre los saques
+ordenados: sólo entran partidos con saque **estrictamente anterior** (excluye
+incluso los simultáneos). No es disciplina, es imposible filtrar futuro — y hay un
+test (`test_no_lookahead_training_strictly_precedes_target`) que lo verifica
+espiando qué recibió `fit` antes de cada predicción.
+
+### Persistencia (revisable)
+
+Por defecto guarda la corrida en `models.model_versions` (una fila por backtest,
+con config, rango temporal y un resumen de métricas en `notes`) y cada predicción
+en `models.predictions` (3 filas por partido: home/draw/away, mercado `1x2`). Las
+predicciones son la materia prima: las métricas se **recalculan** cruzándolas con
+el resultado real en `core.matches`, sin duplicar datos derivados. Es **idempotente**:
+re-correr con la misma `(name, version)` reemplaza las predicciones, no duplica.
+
 ## Estructura (src-layout)
 
 ```

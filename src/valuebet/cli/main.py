@@ -9,6 +9,11 @@ import typer
 from valuebet.adapters.api_football import open_adapter
 from valuebet.adapters.sources import seed_sources
 from valuebet.config.settings import Settings, get_settings
+from valuebet.evaluation.backtest import walk_forward
+from valuebet.evaluation.baselines import BASELINES, build_model
+from valuebet.evaluation.data import load_matches
+from valuebet.evaluation.metrics import BacktestMetrics, evaluate
+from valuebet.evaluation.store import persist_backtest
 from valuebet.ingestion.backfill import run_backfill
 from valuebet.ingestion.coverage import coverage_report, export_csv, verify_xg
 from valuebet.ingestion.normalize_catalog import normalize_catalog
@@ -386,6 +391,106 @@ def verify_xg_cmd(
         )
     if result.note:
         typer.echo(f"  nota: {result.note}")
+
+
+def _render_backtest_report(metrics: BacktestMetrics) -> None:
+    """Imprime métricas de CALIBRACIÓN y la tabla de fiabilidad."""
+    typer.echo(f"predicciones evaluadas: {metrics.n}")
+    typer.echo("\nmétricas de calibración (menor es mejor; el norte NO es el acierto):")
+    typer.echo(f"  Brier score : {metrics.brier:.4f}   (0 = perfecto, máx 2)")
+    typer.echo(f"  Log loss    : {metrics.log_loss:.4f}")
+    typer.echo(f"  ECE         : {metrics.ece:.4f}   (error de calibración medio)")
+    typer.secho(
+        f"  Accuracy    : {metrics.accuracy:.4f}   (REFERENCIA, NO es la métrica objetivo)",
+        fg=typer.colors.YELLOW,
+    )
+
+    typer.echo("\ntabla de fiabilidad (prob. predicha vs frecuencia real, one-vs-rest):")
+    typer.echo(f"  {'tramo':<14}{'n':>7}{'predicho':>11}{'observado':>11}")
+    typer.echo("  " + "-" * 41)
+    for b in metrics.calibration:
+        if b.count == 0:
+            continue
+        typer.echo(
+            f"  [{b.lower:.1f}, {b.upper:.1f}){'':<3}{b.count:>7}"
+            f"{b.mean_predicted:>11.3f}{b.observed_freq:>11.3f}"
+        )
+
+
+@app.command("backtest")
+def backtest_cmd(
+    league: int = typer.Option(..., "--league", help="ID de liga de API-Football (39, 140…)."),
+    model: str = typer.Option("baseline", "--model", help=f"Modelo: {', '.join(BASELINES)}."),
+    train_window: int = typer.Option(
+        None, "--train-window", help="Ventana DESLIZANTE de N partidos previos (omitir=expansiva)."
+    ),
+    from_season: int = typer.Option(
+        None, "--from-season", help="Sólo temporadas con etiqueta >= este año."
+    ),
+    step: int = typer.Option(
+        1, "--step", help="Cada cuántas predicciones se re-entrena el modelo."
+    ),
+    min_train: int = typer.Option(
+        20, "--min-train", help="Mínimo de partidos de historia para emitir predicción."
+    ),
+    n_bins: int = typer.Option(10, "--bins", help="Nº de tramos de la tabla de calibración."),
+    persist: bool = typer.Option(
+        True, "--persist/--no-persist", help="Guarda el backtest en models.* (idempotente)."
+    ),
+) -> None:
+    """Corre el walk-forward de un modelo sobre los datos reales y reporta calibración.
+
+    NO mide ROI ni CLV (faltan cuotas, Fase 4): sólo calidad/calibración de la
+    predicción. El baseline es la vara mínima que cualquier modelo debe superar.
+    """
+    try:
+        matches = load_matches(league, from_season=from_season)
+    except LookupError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    if not matches:
+        typer.secho("Sin partidos evaluables para esa liga/temporada.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=0)
+
+    try:
+        engine = build_model(model)
+    except KeyError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    result = walk_forward(
+        engine, matches, train_window=train_window, step=step, min_train=min_train
+    )
+
+    typer.echo(
+        f"backtest league={league} model={model} → "
+        f"partidos={result.n_finished}, predichos={result.n_predicted}, "
+        f"sin_historia={result.n_skipped}"
+    )
+    if not result.records:
+        typer.secho(
+            "Ningún partido tuvo historia suficiente (sube los datos o baja --min-train).",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=0)
+
+    metrics = evaluate(result.records, n_bins=n_bins)
+    typer.echo("")
+    _render_backtest_report(metrics)
+
+    if persist:
+        version = f"{model}-tw{train_window or 'all'}-s{step}-mt{min_train}"
+        mv_id = persist_backtest(
+            result,
+            metrics,
+            league_external_id=league,
+            name=f"baseline:{model}",
+            version=version,
+            algorithm=model,
+            from_season=from_season,
+        )
+        typer.echo(f"\npersistido en models.model_versions {mv_id} (version='{version}')")
 
 
 if __name__ == "__main__":
