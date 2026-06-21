@@ -115,17 +115,27 @@ def _team_frequency() -> TeamFrequencyBaseline:
     return TeamFrequencyBaseline()
 
 
-def _poisson():
-    # Import perezoso: el modelo Poisson vive en la capa `modeling` y depende del
-    # extra opcional `modeling` (numpy/scipy). No se importa salvo que se use.
+def _require_modeling(model_name: str):
+    """Import perezoso de la capa `modeling` (extra opcional numpy/scipy)."""
     try:
+        from valuebet.modeling.dixon_coles import DixonColesModel
         from valuebet.modeling.poisson import PoissonModel
     except ImportError as exc:  # pragma: no cover - depende del entorno
         raise ImportError(
-            "el modelo 'poisson' requiere el extra 'modeling' (numpy/scipy); "
+            f"el modelo '{model_name}' requiere el extra 'modeling' (numpy/scipy); "
             "instálalo con 'uv sync --extra modeling'."
         ) from exc
-    return PoissonModel()
+    return PoissonModel, DixonColesModel
+
+
+def _poisson():
+    poisson_cls, _ = _require_modeling("poisson")
+    return poisson_cls()
+
+
+def _dixon_coles():
+    _, dc_cls = _require_modeling("dixon_coles")
+    return dc_cls()
 
 
 BASELINES: dict[str, object] = {
@@ -133,6 +143,8 @@ BASELINES: dict[str, object] = {
     "home-advantage": _home_advantage,
     "team-frequency": _team_frequency,
     "poisson": _poisson,
+    "dixon_coles": _dixon_coles,
+    "dc": _dixon_coles,  # alias corto
 }
 
 

@@ -12,6 +12,12 @@ analítico) sobre los goles observados. Con λ se construye la matriz de marcado
 (0..max_goals por lado, goles independientes) y se agregan las probabilidades a
 {home, draw, away}.
 
+Esta clase está pensada para EXTENDERSE sin duplicar (ver `DixonColesModel`,
+HU 3.2): la estructura ataque/defensa/ventaja-local, el ajuste MLE, el warm-start,
+el re-centrado, el fallback de equipos sin historia y la agregación de la matriz
+de marcadores se reutilizan vía hooks (`_objective`, `_initial_guess`, `_bounds`,
+`_store_solution`, `_joint_matrix`).
+
 NO incluye (a propósito, son capas posteriores):
   * la corrección de dependencia de marcadores bajos de Dixon-Coles (HU 3.2);
   * la ponderación temporal por antigüedad (HU 3.3).
@@ -53,13 +59,15 @@ class PoissonParameters:
 
     `attack`/`defense` están indexados por `team_id`. Ataque mayor ⇒ marca más;
     defensa MENOR ⇒ encaja menos (la defensa entra como sumando en la λ rival, así
-    que valores negativos = mejor defensa).
+    que valores negativos = mejor defensa). `rho` es la dependencia de marcadores
+    bajos de Dixon-Coles (None en el Poisson puro, donde no existe).
     """
 
     attack: dict[uuid.UUID, float]
     defense: dict[uuid.UUID, float]
     home_advantage: float
     mean_defense: float
+    rho: float | None = None
 
     def top_attack(self, n: int = 5) -> list[tuple[uuid.UUID, float]]:
         return sorted(self.attack.items(), key=lambda kv: kv[1], reverse=True)[:n]
@@ -113,17 +121,34 @@ class PoissonModel:
 
         x0 = self._initial_guess(teams, n)
         result = minimize(
-            self._nll_and_grad,
+            self._objective,
             x0,
             args=(home_idx, away_idx, hg, ag, n),
             jac=True,
             method="L-BFGS-B",
+            bounds=self._bounds(n),
             options={"maxiter": self.max_iter},
         )
+        self._store_solution(result.x, teams, index, n)
 
-        attack = result.x[:n].copy()
-        defense = result.x[n : 2 * n].copy()
-        home_adv = float(result.x[2 * n])
+    def _initial_guess(self, teams: list[uuid.UUID], n: int) -> np.ndarray:
+        x0 = np.zeros(2 * n + 1)
+        for i, t in enumerate(teams):
+            x0[i] = self._prev_attack.get(t, 0.0)
+            x0[n + i] = self._prev_defense.get(t, self._mean_defense)
+        x0[2 * n] = self._prev_home_adv
+        return x0
+
+    def _bounds(self, n: int) -> list[tuple[float | None, float | None]] | None:
+        """Cotas para el optimizador. Poisson no las necesita (todo libre)."""
+        return None
+
+    def _store_solution(
+        self, x: np.ndarray, teams: list[uuid.UUID], index: dict[uuid.UUID, int], n: int
+    ) -> None:
+        attack = x[:n].copy()
+        defense = x[n : 2 * n].copy()
+        home_adv = float(x[2 * n])
 
         # Re-centrado de identificabilidad: media de ataques = 0 (defensa absorbe
         # el desplazamiento, λ invariante).
@@ -144,16 +169,8 @@ class PoissonModel:
         self._prev_defense = {t: float(defense[i]) for t, i in index.items()}
         self._prev_home_adv = home_adv
 
-    def _initial_guess(self, teams: list[uuid.UUID], n: int) -> np.ndarray:
-        x0 = np.zeros(2 * n + 1)
-        for t, i in ((t, i) for i, t in enumerate(teams)):
-            x0[i] = self._prev_attack.get(t, 0.0)
-            x0[n + i] = self._prev_defense.get(t, self._mean_defense)
-        x0[2 * n] = self._prev_home_adv
-        return x0
-
-    @staticmethod
-    def _nll_and_grad(
+    def _objective(
+        self,
         x: np.ndarray,
         home_idx: np.ndarray,
         away_idx: np.ndarray,
@@ -179,6 +196,14 @@ class PoissonModel:
         # ∂nll/∂(log λ) = λ − goles.
         gh = lh - hg
         ga = la - ag
+        grad = self._chain_grad(gh, ga, home_idx, away_idx, n)
+        return nll, grad
+
+    @staticmethod
+    def _chain_grad(
+        gh: np.ndarray, ga: np.ndarray, home_idx: np.ndarray, away_idx: np.ndarray, n: int
+    ) -> np.ndarray:
+        """Encadena ∂nll/∂(log λ_local)=gh y ∂nll/∂(log λ_visit)=ga a (a, d, h)."""
         grad_a = np.bincount(home_idx, weights=gh, minlength=n) + np.bincount(
             away_idx, weights=ga, minlength=n
         )
@@ -186,8 +211,7 @@ class PoissonModel:
             home_idx, weights=ga, minlength=n
         )
         grad_h = float(np.sum(gh))
-        grad = np.concatenate([grad_a, grad_d, [grad_h]])
-        return nll, grad
+        return np.concatenate([grad_a, grad_d, [grad_h]])
 
     # ------------------------------------------------------------------ #
     # Predicción
@@ -204,6 +228,15 @@ class PoissonModel:
         log_pmf = -lam + ks * np.log(lam) - gammaln(ks + 1)
         return np.exp(log_pmf)
 
+    def _joint_matrix(self, lambda_home: float, lambda_away: float) -> np.ndarray:
+        """Matriz P(local=x, visitante=y). Poisson: producto externo (independencia).
+
+        Hook de extensión: Dixon-Coles aplica aquí su corrección a las 4 celdas bajas.
+        """
+        ph = self._poisson_pmf(lambda_home)
+        pa = self._poisson_pmf(lambda_away)
+        return np.outer(ph, pa)
+
     def predict_proba(self, match: Match) -> Probabilities:
         if not self._fitted:
             return Probabilities.uniform()
@@ -214,9 +247,8 @@ class PoissonModel:
         lambda_home = float(np.exp(a_home + d_away + self._home_adv))
         lambda_away = float(np.exp(a_away + d_home))
 
-        ph = self._poisson_pmf(lambda_home)
-        pa = self._poisson_pmf(lambda_away)
-        joint = np.outer(ph, pa)  # joint[x, y] = P(local=x, visitante=y)
+        joint = self._joint_matrix(lambda_home, lambda_away)
+        joint = np.clip(joint, 0.0, None)  # la corrección DC podría dar negativos ínfimos
 
         home = float(np.tril(joint, -1).sum())  # x > y
         draw = float(np.trace(joint))  # x == y

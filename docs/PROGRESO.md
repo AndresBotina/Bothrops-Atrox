@@ -55,9 +55,28 @@
       Log loss: baseline 1.0677  →  poisson 1.0441  ✓
       Accuracy (ref): 0.4423 → 0.5175 ; ECE: 0.0038 → 0.0170
   - NO se implementó la corrección Dixon-Coles (HU 3.2) ni ponderación temporal (HU 3.3).
+- [x] HU 3.2  Corrección Dixon-Coles sobre el Poisson
+  - `src/valuebet/modeling/dixon_coles.py`: `DixonColesModel` HEREDA de `PoissonModel`
+    (sin duplicar ataque/defensa/ventaja-local/MLE/warm-start) y añade ρ vía hooks
+    `_objective`/`_initial_guess`/`_bounds`/`_store_solution`/`_joint_matrix`.
+  - τ(x,y) corrige las 4 celdas bajas (0-0,0-1,1-0,1-1); ρ estimado por MLE con
+    gradiente analítico (verificado contra numérico vía check_grad).
+  - ρ inspeccionable (`model.rho` / `parameters.rho`); ρ=0 reproduce el Poisson exacto.
+  - Registrado: `valuebet backtest --model dixon_coles` (alias `dc`).
+  - VERIFICACIÓN end-to-end (Premier 39, 2015-2025; comparación de 3 modelos):
+      Métrica   | baseline | poisson | dixon_coles
+      Brier  ↓  | 0.6460   | 0.5946  | 0.5950
+      LogLoss↓  | 1.0677   | 1.0441  | 1.0429
+      Accuracy  | 0.4423   | 0.5175  | 0.5188
+      ECE       | 0.0038   | 0.0170  | 0.0138
+    ρ real estimado ≈ -0.0387 (negativo y pequeño, como en el dominio).
+    HONESTO: DC mejora log loss/accuracy/ECE sobre Poisson; Brier EMPATADO
+    (+0.0004, ruido en milésimas). No empeora — efecto marginal porque ρ es chico
+    y sólo corrige 4 celdas. Coherente con la expectativa de la HU.
+  - NO se implementó la ponderación temporal (HU 3.3).
 
-## Fases 3 (resto)-6: SIN EMPEZAR
-Dixon-Coles (corrección + ponderación temporal) · Detección de valor ·
+## Fase 3 (resto)-6: SIN EMPEZAR
+Dixon-Coles ponderación temporal (HU 3.3) · Detección de valor ·
 Retroalimentación · Contexto
 
 ## Notas / deuda

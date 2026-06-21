@@ -293,16 +293,38 @@ ponderación temporal (HU 3.3).
 
 El Poisson **mejora al baseline en las métricas objetivo** (Brier y log loss):
 
-| Métrica            | baseline (HU 2.1) | poisson (HU 3.1) |
-|--------------------|-------------------|------------------|
-| Brier score ↓      | 0.6460            | **0.5946**       |
-| Log loss ↓         | 1.0677            | **1.0441**       |
-| Accuracy (ref.)    | 0.4423            | 0.5175           |
-| ECE                | 0.0038            | 0.0170           |
+| Métrica            | baseline (HU 2.1) | poisson (HU 3.1) | dixon_coles (HU 3.2) |
+|--------------------|-------------------|------------------|----------------------|
+| Brier score ↓      | 0.6460            | 0.5946           | 0.5950               |
+| Log loss ↓         | 1.0677            | 1.0441           | **1.0429**           |
+| Accuracy (ref.)    | 0.4423            | 0.5175           | **0.5188**           |
+| ECE                | 0.0038            | 0.0170           | 0.0138               |
 
 (El baseline está trivialmente calibrado porque predice la frecuencia global y
 nunca se moja; el Poisson da probabilidades más afiladas que cubren todo el rango
 [0,1], a costa de un ECE algo mayor pero con mejor Brier/log loss, que es el norte.)
+
+## Corrección Dixon-Coles — Fase 3 (HU 3.2)
+
+`DixonColesModel` hereda de `PoissonModel` y añade la función de dependencia
+τ(x,y) de Dixon & Coles (1997), que corrige SÓLO las 4 celdas de marcador bajo
+(0-0, 0-1, 1-0, 1-1) con un parámetro ρ estimado por MLE junto al resto:
+
+```bash
+uv run valuebet backtest --league 39 --from-season 2015 --model dixon_coles --no-persist
+```
+
+- Con ρ<0 (lo típico en fútbol) sube la probabilidad de 0-0 y 1-1 → más empates.
+- Con **ρ=0 reproduce exactamente el Poisson** (consistencia testeada).
+- ρ se estima con gradiente analítico (verificado contra el numérico) y es
+  inspeccionable vía `model.parameters.rho` / `model.rho`.
+
+**Resultado honesto sobre datos reales (Premier 2015–2025):** ρ ≈ **−0.0387**
+(negativo y pequeño, como manda el dominio). La corrección sólo toca 4 celdas, así
+que su efecto es marginal: **mejora log loss, accuracy y ECE** respecto al Poisson,
+y el **Brier queda empatado** (0.5950 vs 0.5946, diferencia de 0.0004 = ruido en
+milésimas). No empeora — coherente con la expectativa de que Dixon-Coles aporta
+poco cuando ρ es chico. La ponderación temporal (HU 3.3) es la siguiente capa.
 
 ## Estructura (src-layout)
 
