@@ -77,12 +77,13 @@ def test_analytic_gradient_matches_numeric() -> None:
     model = DixonColesModel()
 
     x = np.concatenate([rng.normal(0, 0.2, 2 * n), [0.25], [-0.12]])  # a,d,h,rho
+    weights = rng.uniform(0.3, 1.0, n_matches)  # pesos no triviales (gradiente ponderado)
 
     def f(z):
-        return model._objective(z, home_idx, away_idx, hg, ag, n)[0]
+        return model._objective(z, home_idx, away_idx, hg, ag, weights, n)[0]
 
     def g(z):
-        return model._objective(z, home_idx, away_idx, hg, ag, n)[1]
+        return model._objective(z, home_idx, away_idx, hg, ag, weights, n)[1]
 
     assert check_grad(f, g, x) < 1e-4
 

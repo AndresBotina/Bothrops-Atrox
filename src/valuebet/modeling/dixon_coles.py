@@ -24,7 +24,9 @@ sin historia, agregación de la matriz). Sólo añade ρ:
 
 Con ρ = 0, τ ≡ 1 y el modelo es IDÉNTICO al Poisson puro (consistencia).
 
-NO incluye la ponderación temporal (HU 3.3).
+PONDERACIÓN TEMPORAL (HU 3.3): se hereda de `PoissonModel` vía `half_life`. El peso
+de cada partido multiplica TODOS sus términos de la log-verosimilitud, incluido el
+factor τ. Con half_life=None (∞) el modelo es idéntico al de la HU 3.2.
 """
 
 from __future__ import annotations
@@ -50,8 +52,10 @@ _TAU_FLOOR = 1e-10
 class DixonColesModel(PoissonModel):
     """Modelo Poisson + corrección Dixon-Coles de marcadores bajos."""
 
-    def __init__(self, *, max_goals: int = 10, max_iter: int = 200) -> None:
-        super().__init__(max_goals=max_goals, max_iter=max_iter)
+    def __init__(
+        self, *, max_goals: int = 10, max_iter: int = 200, half_life: float | None = None
+    ) -> None:
+        super().__init__(max_goals=max_goals, max_iter=max_iter, half_life=half_life)
         self._rho: float = 0.0
         self._prev_rho: float = -0.10  # arranque típico en fútbol
 
@@ -80,12 +84,14 @@ class DixonColesModel(PoissonModel):
         away_idx: np.ndarray,
         hg: np.ndarray,
         ag: np.ndarray,
+        weights: np.ndarray,
         n: int,
     ) -> tuple[float, np.ndarray]:
-        """NLL Dixon-Coles = NLL Poisson − Σ log τ, con gradiente analítico.
+        """NLL Dixon-Coles PONDERADA = NLL Poisson − Σ wₘ·log τₘ, con gradiente.
 
         τ depende de λ=exp(log λ_local), μ=exp(log λ_visit) y ρ; sólo contribuye en
-        las 4 celdas bajas según el marcador OBSERVADO de cada partido.
+        las 4 celdas bajas según el marcador OBSERVADO de cada partido. Cada término
+        (Poisson y τ) se multiplica por el peso temporal del partido.
         """
         a = x[:n]
         d = x[n : 2 * n]
@@ -97,10 +103,10 @@ class DixonColesModel(PoissonModel):
         lh = np.exp(log_lh)
         la = np.exp(log_la)
 
-        # --- parte Poisson (idéntica a la base) ---
-        nll = float(np.sum(lh - hg * log_lh) + np.sum(la - ag * log_la))
-        gh = lh - hg  # ∂nll_pois/∂(log λ_local)
-        ga = la - ag  # ∂nll_pois/∂(log λ_visit)
+        # --- parte Poisson PONDERADA (idéntica a la base) ---
+        nll = float(np.sum(weights * (lh - hg * log_lh)) + np.sum(weights * (la - ag * log_la)))
+        gh = weights * (lh - hg)  # ∂nll_pois/∂(log λ_local)
+        ga = weights * (la - ag)  # ∂nll_pois/∂(log λ_visit)
 
         # --- corrección τ (sólo celdas bajas según el marcador observado) ---
         m00 = (hg == 0) & (ag == 0)
@@ -116,9 +122,9 @@ class DixonColesModel(PoissonModel):
 
         bad = tau <= _TAU_FLOOR
         tau_safe = np.where(bad, _TAU_FLOOR, tau)
-        nll -= float(np.sum(np.log(tau_safe)))
+        nll -= float(np.sum(weights * np.log(tau_safe)))
 
-        # ∂(log τ)/∂(log λ_local), ∂/∂(log λ_visit), ∂/∂ρ por celda.
+        # ∂(log τ)/∂(log λ_local), ∂/∂(log λ_visit), ∂/∂ρ por celda (con peso).
         dlt_dL = np.zeros_like(lh)
         dlt_dM = np.zeros_like(lh)
         dlt_drho = np.zeros_like(lh)
@@ -143,11 +149,11 @@ class DixonColesModel(PoissonModel):
             dlt_dM *= keep
             dlt_drho *= keep
 
-        # nll = nll_pois − Σ log τ  ⇒  ∂nll/∂(log λ) = g_pois − ∂log τ/∂(log λ).
-        gh_eff = gh - dlt_dL
-        ga_eff = ga - dlt_dM
+        # nll = nll_pois − Σ w·log τ  ⇒  ∂nll/∂(log λ) = g_pois − w·∂log τ/∂(log λ).
+        gh_eff = gh - weights * dlt_dL
+        ga_eff = ga - weights * dlt_dM
         grad = self._chain_grad(gh_eff, ga_eff, home_idx, away_idx, n)
-        grad_rho = -float(np.sum(dlt_drho))
+        grad_rho = -float(np.sum(weights * dlt_drho))
         return nll, np.concatenate([grad, [grad_rho]])
 
     # ------------------------------------------------------------------ #

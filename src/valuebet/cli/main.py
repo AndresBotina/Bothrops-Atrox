@@ -14,6 +14,7 @@ from valuebet.evaluation.baselines import BASELINES, build_model
 from valuebet.evaluation.data import load_matches
 from valuebet.evaluation.metrics import BacktestMetrics, evaluate
 from valuebet.evaluation.store import persist_backtest
+from valuebet.evaluation.tuning import DEFAULT_HALF_LIFE_GRID, best_by_brier, sweep_half_lives
 from valuebet.ingestion.backfill import run_backfill
 from valuebet.ingestion.coverage import coverage_report, export_csv, verify_xg
 from valuebet.ingestion.normalize_catalog import normalize_catalog
@@ -417,6 +418,49 @@ def _render_backtest_report(metrics: BacktestMetrics) -> None:
         )
 
 
+def _parse_half_life_grid(raw: str) -> tuple[float | None, ...]:
+    """Parsea '90,180,365,inf' a una rejilla; 'inf'/'none'/'-' → None (sin decaimiento)."""
+    grid: list[float | None] = []
+    for token in raw.split(","):
+        token = token.strip().lower()
+        if not token:
+            continue
+        if token in ("inf", "infinito", "none", "-"):
+            grid.append(None)
+        else:
+            grid.append(float(token))
+    return tuple(grid)
+
+
+def _hl_label(half_life: float | None) -> str:
+    return "infinito" if half_life is None else f"{half_life:g}"
+
+
+def _render_sweep_table(rows, model: str) -> None:
+    """Imprime la tabla de barrido de half-lives (Brier/log loss por configuración)."""
+    typer.echo(f"\nbarrido de half-life (días) · modelo {model}:")
+    typer.echo(f"  {'half-life':>10}{'Brier':>10}{'log loss':>11}{'ECE':>9}{'n':>7}")
+    typer.echo("  " + "-" * 45)
+    best = best_by_brier(rows)
+    for r in rows:
+        marca = "  <- mejor Brier" if r is best else ""
+        typer.echo(
+            f"  {_hl_label(r.half_life):>10}{r.metrics.brier:>10.4f}"
+            f"{r.metrics.log_loss:>11.4f}{r.metrics.ece:>9.4f}{r.metrics.n:>7}{marca}"
+        )
+    typer.secho(
+        f"\nmejor half-life por Brier: {_hl_label(best.half_life)} días "
+        f"(Brier={best.metrics.brier:.4f}).",
+        fg=typer.colors.GREEN,
+    )
+    typer.secho(
+        "AVISO: elegir el half-life mirando el Brier de TODO el histórico y reportarlo "
+        "es sobreajuste sutil (lookahead en la selección). Esta tabla es para inspección; "
+        "la selección rigurosa requiere un periodo de validación separado.",
+        fg=typer.colors.YELLOW,
+    )
+
+
 @app.command("backtest")
 def backtest_cmd(
     league: int = typer.Option(..., "--league", help="ID de liga de API-Football (39, 140…)."),
@@ -433,6 +477,18 @@ def backtest_cmd(
     min_train: int = typer.Option(
         20, "--min-train", help="Mínimo de partidos de historia para emitir predicción."
     ),
+    half_life: float = typer.Option(
+        None, "--half-life", help="Half-life en DÍAS de la ponderación temporal (poisson/dc)."
+    ),
+    half_life_grid: str = typer.Option(
+        None,
+        "--half-life-grid",
+        help="Modo BARRIDO: lista de half-lives en días, p.ej. '90,180,365,inf'. "
+        "Vacío usa la rejilla por defecto. No persiste.",
+    ),
+    sweep: bool = typer.Option(
+        False, "--sweep", help="Barre la rejilla de half-lives por defecto (poisson/dc)."
+    ),
     n_bins: int = typer.Option(10, "--bins", help="Nº de tramos de la tabla de calibración."),
     persist: bool = typer.Option(
         True, "--persist/--no-persist", help="Guarda el backtest en models.* (idempotente)."
@@ -442,6 +498,9 @@ def backtest_cmd(
 
     NO mide ROI ni CLV (faltan cuotas, Fase 4): sólo calidad/calibración de la
     predicción. El baseline es la vara mínima que cualquier modelo debe superar.
+
+    Con --sweep / --half-life-grid barre varios half-lives y reporta una tabla
+    Brier/log loss para ELEGIR el decaimiento empíricamente.
     """
     try:
         matches = load_matches(league, from_season=from_season)
@@ -453,8 +512,26 @@ def backtest_cmd(
         typer.secho("Sin partidos evaluables para esa liga/temporada.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
+    # --- Modo BARRIDO de half-lives (selección de hiperparámetro) ---
+    if sweep or half_life_grid is not None:
+        grid = _parse_half_life_grid(half_life_grid) if half_life_grid else DEFAULT_HALF_LIFE_GRID
+        rows = sweep_half_lives(
+            model,
+            matches,
+            grid,
+            train_window=train_window,
+            step=step,
+            min_train=min_train,
+            n_bins=n_bins,
+        )
+        if not rows:
+            typer.secho("Ningún partido evaluable en el barrido.", fg=typer.colors.YELLOW)
+            raise typer.Exit(code=0)
+        _render_sweep_table(rows, model)
+        raise typer.Exit(code=0)
+
     try:
-        engine = build_model(model)
+        engine = build_model(model, half_life=half_life)
     except KeyError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
@@ -480,7 +557,9 @@ def backtest_cmd(
     _render_backtest_report(metrics)
 
     if persist:
-        version = f"{model}-tw{train_window or 'all'}-s{step}-mt{min_train}"
+        version = (
+            f"{model}-tw{train_window or 'all'}-s{step}-mt{min_train}-hl{_hl_label(half_life)}"
+        )
         mv_id = persist_backtest(
             result,
             metrics,

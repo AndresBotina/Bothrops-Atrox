@@ -18,9 +18,17 @@ el re-centrado, el fallback de equipos sin historia y la agregación de la matri
 de marcadores se reutilizan vía hooks (`_objective`, `_initial_guess`, `_bounds`,
 `_store_solution`, `_joint_matrix`).
 
-NO incluye (a propósito, son capas posteriores):
-  * la corrección de dependencia de marcadores bajos de Dixon-Coles (HU 3.2);
-  * la ponderación temporal por antigüedad (HU 3.3).
+PONDERACIÓN TEMPORAL (HU 3.3)
+-----------------------------
+`fit` admite una verosimilitud PONDERADA: cada partido pesa
+exp(-ξ·(t_ref − t_partido)), con ξ = ln(2)/half_life y el tiempo en DÍAS. Así el
+pasado lejano influye menos. `half_life=None` (∞) ⇒ sin decaimiento (idéntico al
+modelo sin ponderar). Como la interfaz `PredictionModel.fit(matches)` no recibe un
+`as_of`, se usa t_ref = kickoff MÁXIMO del set de entrenamiento (el walk-forward
+sólo pasa partidos anteriores al saque objetivo, así que ese máximo es el "ahora"
+del entrenamiento). half_life es un HIPERPARÁMETRO: NO se estima por MLE (las
+verosimilitudes ponderadas con distinto ξ no son comparables); se elige por
+backtesting (ver `evaluation/tuning.py`).
 
 Implementa el `PredictionModel` de la Fase 2, así que enchufa en el walk-forward
 existente SIN tocarlo.
@@ -42,6 +50,7 @@ trata como un equipo promedio en vez de romper.
 
 from __future__ import annotations
 
+import math
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -51,6 +60,23 @@ from scipy.optimize import minimize
 from scipy.special import gammaln
 
 from valuebet.evaluation.model import Match, Probabilities
+
+# Unidad de tiempo de la ponderación temporal (HU 3.3): DÍAS.
+
+
+def decay_weights(ages_days: np.ndarray, half_life: float | None) -> np.ndarray:
+    """Pesos de decaimiento exponencial por antigüedad (en días).
+
+    w = exp(-ξ · edad) con ξ = ln(2)/half_life. Así un partido con antigüedad de
+    una half-life pesa 0.5, dos half-lives 0.25, etc. `half_life=None` (∞) ⇒ ξ=0
+    ⇒ todos los pesos valen 1.0 (sin decaimiento; equivale a la HU 3.2).
+    """
+    if half_life is None:
+        return np.ones_like(ages_days)
+    if half_life <= 0:
+        raise ValueError("half_life debe ser > 0 (o None para infinito)")
+    xi = math.log(2.0) / half_life
+    return np.exp(-xi * ages_days)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,11 +106,16 @@ class PoissonParameters:
 class PoissonModel:
     """Modelo Poisson de goles que implementa `PredictionModel`."""
 
-    def __init__(self, *, max_goals: int = 10, max_iter: int = 200) -> None:
+    def __init__(
+        self, *, max_goals: int = 10, max_iter: int = 200, half_life: float | None = None
+    ) -> None:
         if max_goals < 1:
             raise ValueError("max_goals debe ser >= 1")
+        if half_life is not None and half_life <= 0:
+            raise ValueError("half_life debe ser > 0 (o None para infinito = sin decaimiento)")
         self.max_goals = max_goals
         self.max_iter = max_iter
+        self.half_life = half_life  # días; None = sin decaimiento temporal
 
         # Estado tras fit.
         self._teams: list[uuid.UUID] = []
@@ -119,11 +150,20 @@ class PoissonModel:
         hg = np.fromiter((m.home_goals for m in finished), dtype=np.float64)
         ag = np.fromiter((m.away_goals for m in finished), dtype=np.float64)
 
+        # Pesos de decaimiento temporal: t_ref = kickoff máximo del entrenamiento.
+        t_ref = max(m.kickoff_utc for m in finished)
+        ages = np.fromiter(
+            ((t_ref - m.kickoff_utc).total_seconds() / 86400.0 for m in finished),
+            dtype=np.float64,
+            count=len(finished),
+        )
+        weights = decay_weights(ages, self.half_life)
+
         x0 = self._initial_guess(teams, n)
         result = minimize(
             self._objective,
             x0,
-            args=(home_idx, away_idx, hg, ag, n),
+            args=(home_idx, away_idx, hg, ag, weights, n),
             jac=True,
             method="L-BFGS-B",
             bounds=self._bounds(n),
@@ -176,11 +216,14 @@ class PoissonModel:
         away_idx: np.ndarray,
         hg: np.ndarray,
         ag: np.ndarray,
+        weights: np.ndarray,
         n: int,
     ) -> tuple[float, np.ndarray]:
-        """Negativo de la log-verosimilitud Poisson y su gradiente analítico.
+        """Negativo de la log-verosimilitud Poisson PONDERADA y su gradiente.
 
-        Se omite el término constante log(k!) (no depende de los parámetros).
+        Cada partido pesa `weights[m]` (decaimiento temporal). Se omite el término
+        constante log(k!) (no depende de los parámetros). Con weights ≡ 1 coincide
+        exactamente con la verosimilitud sin ponderar.
         """
         a = x[:n]
         d = x[n : 2 * n]
@@ -191,11 +234,11 @@ class PoissonModel:
         lh = np.exp(log_lh)
         la = np.exp(log_la)
 
-        nll = float(np.sum(lh - hg * log_lh) + np.sum(la - ag * log_la))
+        nll = float(np.sum(weights * (lh - hg * log_lh)) + np.sum(weights * (la - ag * log_la)))
 
-        # ∂nll/∂(log λ) = λ − goles.
-        gh = lh - hg
-        ga = la - ag
+        # ∂nll/∂(log λ) = peso · (λ − goles).
+        gh = weights * (lh - hg)
+        ga = weights * (la - ag)
         grad = self._chain_grad(gh, ga, home_idx, away_idx, n)
         return nll, grad
 

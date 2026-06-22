@@ -326,6 +326,59 @@ y el **Brier queda empatado** (0.5950 vs 0.5946, diferencia de 0.0004 = ruido en
 milésimas). No empeora — coherente con la expectativa de que Dixon-Coles aporta
 poco cuando ρ es chico. La ponderación temporal (HU 3.3) es la siguiente capa.
 
+## Ponderación temporal — Fase 3 (HU 3.3)
+
+Completa el Dixon-Coles clásico (1997). Hasta aquí todos los partidos del
+entrenamiento pesaban igual; ahora cada uno pondera por **decaimiento exponencial**
+según su antigüedad: `w = exp(−ξ · edad)` con `ξ = ln(2)/half_life` y el tiempo en
+**días**. Un partido con antigüedad de una *half-life* pesa la mitad. `half_life`
+infinito (∞) ⇒ sin decaimiento ⇒ idéntico a la HU 3.2.
+
+La ponderación vive en `PoissonModel` (la heredan Poisson y Dixon-Coles). Como
+`PredictionModel.fit(matches)` no recibe un `as_of`, **t_ref = kickoff máximo del
+set de entrenamiento** (el walk-forward sólo pasa partidos anteriores al saque).
+
+**`half_life` es un HIPERPARÁMETRO, no se estima por MLE** (las verosimilitudes
+ponderadas con distinto ξ no son comparables). Se elige por backtesting con el modo
+barrido:
+
+```bash
+uv run valuebet backtest --league 39 --from-season 2015 --model dixon_coles --sweep
+uv run valuebet backtest --league 39 --model dixon_coles --half-life 365   # un valor fijo
+```
+
+### Barrido de half-lives (Premier, id 39, 2015–2025, walk-forward)
+
+| half-life (días) | Brier ↓    | log loss ↓ | ECE    |
+|------------------|------------|------------|--------|
+| 90               | 0.5908     | 1.0441     | 0.0253 |
+| 180              | 0.5847     | 1.0319     | 0.0137 |
+| **365**          | **0.5844** | 1.0299     | 0.0138 |
+| 540              | 0.5856     | 1.0296     | 0.0142 |
+| 730              | 0.5869     | 1.0315     | 0.0144 |
+| ∞ (HU 3.2)       | 0.5950     | 1.0429     | 0.0138 |
+
+⚠️ **Riesgo de lookahead en la selección**: elegir el half-life que minimiza el
+Brier sobre TODO el histórico y reportar ese mismo Brier es sobreajuste sutil. La
+tabla es para inspección; la selección rigurosa exige un periodo de validación
+separado (refinable más adelante). La CLI lo advierte explícitamente.
+
+### Comparación final de las configuraciones
+
+| Configuración          | Brier ↓    | log loss ↓ | Accuracy (ref.) | ECE    |
+|------------------------|------------|------------|-----------------|--------|
+| baseline (HU 2.1)      | 0.6460     | 1.0677     | 0.4423          | 0.0038 |
+| poisson (HU 3.1)       | 0.5946     | 1.0441     | 0.5175          | 0.0170 |
+| dixon_coles ∞ (HU 3.2) | 0.5950     | 1.0429     | 0.5188          | 0.0138 |
+| **dc + half-life 365** | **0.5844** | **1.0299** | **0.5317**      | 0.0138 |
+
+**Conclusión (confirma la hipótesis):** el decaimiento temporal mejora el Brier de
+forma **apreciable** (∞ 0.5950 → 365d 0.5844, −0.0106), bastante más que la
+corrección ρ de la HU 3.2 (que movía milésimas). Tiene sentido futbolístico: la
+fuerza de un equipo cambia con el tiempo y olvidar el pasado lejano ayuda. El
+**half-life ganador en estas ligas es ~365 días** (1 temporada). Con esto se cierra
+el Dixon-Coles clásico (núcleo de la Fase 3).
+
 ## Estructura (src-layout)
 
 ```

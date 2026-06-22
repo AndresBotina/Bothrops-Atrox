@@ -74,10 +74,36 @@
     (+0.0004, ruido en milésimas). No empeora — efecto marginal porque ρ es chico
     y sólo corrige 4 celdas. Coherente con la expectativa de la HU.
   - NO se implementó la ponderación temporal (HU 3.3).
+- [x] HU 3.3  Ponderación temporal (decaimiento exponencial) — cierra Dixon-Coles clásico
+  - La ponderación vive en `PoissonModel` (la heredan Poisson y DixonColes): `half_life`
+    en DÍAS; peso = exp(-ξ·edad), ξ=ln(2)/half_life. Verosimilitud PONDERADA (cada
+    término ×peso, incluido τ). `half_life=None` (∞) reproduce EXACTO la HU 3.2.
+  - t_ref = kickoff máximo del entrenamiento (la interfaz fit no recibe as_of).
+  - half_life es HIPERPARÁMETRO: NO se estima por MLE (verosimilitudes ponderadas
+    no comparables entre ξ); se elige por barrido. `evaluation/tuning.py`.
+  - CLI: `--half-life N`, `--sweep` y `--half-life-grid '90,180,365,inf'` (modo barrido
+    con tabla Brier/log loss + aviso de lookahead en la selección).
+  - VERIFICACIÓN end-to-end (Premier 39, 2015-2025): barrido de half-lives
+      half-life | Brier  | log loss | ECE
+         90     | 0.5908 | 1.0441   | 0.0253
+        180     | 0.5847 | 1.0319   | 0.0137
+        365     | 0.5844 | 1.0299   | 0.0138   <- mejor Brier
+        540     | 0.5856 | 1.0296   | 0.0142
+        730     | 0.5869 | 1.0315   | 0.0144
+        infinito| 0.5950 | 1.0429   | 0.0138   (= HU 3.2)
+    Comparación final (Brier / logloss / accuracy-ref / ECE):
+      baseline      : 0.6460 / 1.0677 / 0.4423 / 0.0038
+      poisson       : 0.5946 / 1.0441 / 0.5175 / 0.0170
+      dc infinito   : 0.5950 / 1.0429 / 0.5188 / 0.0138
+      dc half-life365: 0.5844 / 1.0299 / 0.5317 / 0.0138  <- ganador
+    HIPÓTESIS CONFIRMADA: el decaimiento mejora el Brier apreciablemente
+    (∞ 0.5950 → 365d 0.5844, -0.0106), mucho más que la corrección ρ (milésimas).
+    Half-life ganador ≈ 365 días (1 temporada). Aviso de lookahead en la selección
+    documentado (la tabla es para inspección; selección rigurosa = validación aparte).
+  - CIERRA el Dixon-Coles clásico (núcleo de la Fase 3).
 
-## Fase 3 (resto)-6: SIN EMPEZAR
-Dixon-Coles ponderación temporal (HU 3.3) · Detección de valor ·
-Retroalimentación · Contexto
+## Fase 4-6: SIN EMPEZAR
+Detección de valor + staking · Retroalimentación/monitoreo · Contexto (alineaciones/lesiones)
 
 ## Notas / deuda
 - Cobertura API-Football: solo Primera A (COL) tiene stats_fixtures; sin odds para COL.

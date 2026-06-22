@@ -107,11 +107,13 @@ class TeamFrequencyBaseline:
 
 # Registro de modelos disponibles para la CLI (nombre → fábrica).
 # Incluye los baselines (vara de referencia) y modelos reales (Poisson, Fase 3).
-def _home_advantage() -> HomeAdvantageBaseline:
+# `half_life` (días) sólo afecta a los modelos Poisson-family; los baselines lo
+# ignoran (no tienen ponderación temporal).
+def _home_advantage(half_life: float | None = None) -> HomeAdvantageBaseline:
     return HomeAdvantageBaseline()
 
 
-def _team_frequency() -> TeamFrequencyBaseline:
+def _team_frequency(half_life: float | None = None) -> TeamFrequencyBaseline:
     return TeamFrequencyBaseline()
 
 
@@ -128,14 +130,14 @@ def _require_modeling(model_name: str):
     return PoissonModel, DixonColesModel
 
 
-def _poisson():
+def _poisson(half_life: float | None = None):
     poisson_cls, _ = _require_modeling("poisson")
-    return poisson_cls()
+    return poisson_cls(half_life=half_life)
 
 
-def _dixon_coles():
+def _dixon_coles(half_life: float | None = None):
     _, dc_cls = _require_modeling("dixon_coles")
-    return dc_cls()
+    return dc_cls(half_life=half_life)
 
 
 BASELINES: dict[str, object] = {
@@ -148,14 +150,18 @@ BASELINES: dict[str, object] = {
 }
 
 
-def build_model(name: str):
-    """Instancia un modelo por nombre. Lanza KeyError con los nombres válidos."""
+def build_model(name: str, *, half_life: float | None = None):
+    """Instancia un modelo por nombre. Lanza KeyError con los nombres válidos.
+
+    `half_life` (días) sólo lo usan los modelos Poisson/Dixon-Coles; los baselines
+    lo ignoran.
+    """
     try:
         factory = BASELINES[name]
     except KeyError:
         valid = ", ".join(sorted(BASELINES))
         raise KeyError(f"modelo desconocido '{name}'; disponibles: {valid}") from None
-    return factory()  # type: ignore[operator]
+    return factory(half_life=half_life)  # type: ignore[operator]
 
 
 # `Outcome` se re-exporta por conveniencia de tipado en otros módulos.
