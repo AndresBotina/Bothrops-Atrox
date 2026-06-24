@@ -102,6 +102,23 @@
     documentado (la tabla es para inspección; selección rigurosa = validación aparte).
   - CIERRA el Dixon-Coles clásico (núcleo de la Fase 3).
 
+- [x] FASE 3 NÚCLEO (Dixon-Coles clásico) COMPLETA.
+  - Progresión Brier (Premier 39, 2015-2025, walk-forward sin lookahead):
+    baseline 0.646 → Poisson 0.595 → Dixon-Coles 0.595 → +decaimiento(365d) 0.584.
+  - Hallazgo: el decaimiento temporal (half-life ~1 temporada) es la mejora
+    DOMINANTE; la corrección ρ de empates es marginal en Premier.
+  - PENDIENTE refinamiento (ver deuda): selección del half-life en validación
+    SEPARADA para evitar el optimismo de elegirlo sobre todo el histórico.
+
+- [x] Validación cruzada en LaLiga (140): modelo ROBUSTO, misma estructura que Premier.
+  - Progresión Brier: baseline 0.644 → Poisson 0.5945 → DC+decaimiento 0.5921.
+  - Hallazgo: el half-life óptimo es ESPECÍFICO POR LIGA (Premier ~365d, LaLiga ~540d,
+    curva plana 365-730d). El decaimiento aporta MENOS en LaLiga (jerarquía más
+    estable). ⇒ el half-life debe ajustarse POR LIGA, no fijarse global.
+  - VIGILAR (staking, Fase 4): el Poisson SOBRE-CONFÍA en favoritos extremos
+    (tramo >0.9: predice 0.94, observado 0.67, n=57). Riesgo conocido para apuestas
+    a favoritos; tenerlo presente al construir señales de valor.
+
 ## Fase 4-6: SIN EMPEZAR
 Detección de valor + staking · Retroalimentación/monitoreo · Contexto (alineaciones/lesiones)
 
@@ -115,6 +132,10 @@ Detección de valor + staking · Retroalimentación/monitoreo · Contexto (aline
   para no perder partidos en silencio.
 - Pendiente Fase 2: derivar xga (= xg del rival en el mismo partido); la API no
   lo da por equipo, queda None en ingesta.
+- Pendiente Fase 3 (refinamiento): elegir el half-life del decaimiento temporal en
+  un periodo de VALIDACIÓN separado del de reporte (out-of-sample), no sobre todo el
+  histórico. El barrido actual (365d ganador en Premier) sobreestima por construcción
+  (lookahead en la selección del hiperparámetro); la CLI ya lo advierte.
 - Decisión v1 (verificada con datos reales): modelar Premier League (id 39) y
   LaLiga (id 140), temporadas 2022-2024. Ambas con xG REAL confirmado vía
   verify-xg en 2023. Ligas regulares ~380 partidos/temporada. Se modela una liga
